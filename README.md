@@ -74,11 +74,11 @@ Commentary describes observed movement and explicitly requests investigation of 
 .venv\Scripts\python -m unittest discover -s tests -v
 ```
 
-Checks cover sample control totals, zero baselines, both materiality thresholds, favorability, exact threshold boundaries, forecast comparisons and invalid input rejection.
+The suite contains 12 tests: five finance-engine tests and seven Streamlit application tests. It checks control totals, zero baselines, materiality boundaries, forecast and country filters, actual file uploads, invalid input rejection, reset-to-demo behavior and separate simulated sessions.
 
 ## GitHub
 
-Suggested repository name: `fpna-variance-assistant`.
+Repository: [casaikiran93-maker/fpa-variance-assistant](https://github.com/casaikiran93-maker/fpa-variance-assistant).
 
 Suggested description: Expense variance analysis with input validation, configurable materiality and evidence-aware management commentary using synthetic finance data.
 
@@ -99,4 +99,4 @@ This starter was generated with AI assistance. Its finance rules and limitations
 
 ## Verification status
 
-The finance test suite has been run in the build environment. The Windows setup and Streamlit browser interface still need a first run on the target laptop. Dependencies have version bounds rather than a fully tested lockfile; a reproducible lockfile can be added after that run.
+On 24 September 2026, all 12 tests passed with Python 3.12.14 and Streamlit 1.64.0 in an isolated Linux environment. The Streamlit server also started and returned a healthy response. Interface behavior was checked with Streamlit AppTest, not a visual browser inspection. Streamlit is pinned to the tested version; transitive dependencies are not yet fully locked. Windows setup, visual usability, hosted browser downloads and public deployment remain to be verified. See [VERIFICATION.md](VERIFICATION.md) for the checks and limitations.
