@@ -6,7 +6,7 @@ from finance import load_csv, sample_csv, analyze, compare, commentary
 st.set_page_config(page_title='FP&A Variance Assistant', page_icon='📊', layout='wide')
 st.title('FP&A Variance Assistant')
 st.caption('Project 1 · Expense analysis · INR reporting currency · Version 0.1')
-st.info('Synthetic demo data is loaded. Commentary uses fixed rules; AI is a later phase.')
+st.caption('Commentary uses fixed rules; AI is a later phase.')
 
 with st.sidebar:
     st.header('Analysis settings')
@@ -23,6 +23,11 @@ try:
 except (ValueError, UnicodeError) as error:
     st.error(str(error))
     st.stop()
+
+if upload is not None:
+    st.info('Uploaded data is loaded. Review the figures and commentary before use.')
+else:
+    st.info('Synthetic demo data is loaded. All sample records are fictional.')
 
 country = st.selectbox('Country', ['All countries'] + sorted({r['country'] for r in rows}))
 selected = [r for r in rows if country == 'All countries' or r['country'] == country]
@@ -44,7 +49,7 @@ display = [{'Country': r['country'], 'Account': r['account'], 'Actual INR': floa
             f'{baseline.title()} INR': float(r[baseline]), 'Variance INR': float(r['variance']),
             'Variance %': f"{r['pct']:.1f}%" if r['pct'] is not None else 'N/A',
             'Outcome': r['direction'], 'Material': 'Yes' if r['material'] else 'No'} for r in result]
-st.dataframe(display, use_container_width=True, hide_index=True)
+st.dataframe(display, width='stretch', hide_index=True)
 
 st.subheader('Draft commentary for review')
 summary = (f"{selected[0]['month']} | {country} | Compared with {baseline}\n"
