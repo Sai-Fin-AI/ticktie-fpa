@@ -67,6 +67,8 @@ flowchart LR
 | --- | --- |
 | `finance.py` | CSV validation, variance and materiality engine (Decimal only) |
 | `evidence.py` | Reviewer notes, coverage arithmetic, evidence-aware commentary |
+| `ingest.py` | CSV/Excel reading, column-role guessing, month and amount parsing, matching separate actuals/budget/forecast files |
+| `data_panel.py` | Data source choice, column-mapping dropdowns, reconciliation of control totals |
 | `pack.py` | Locked review pack, tamper check, Excel/Markdown/JSON exports, notes backup and restore |
 | `llm.py` | One connection for every AI provider, plus demo mode |
 | `agents/` | `interviewer.py` (follow-up questions) and `writer.py` (CFO commentary) |
@@ -74,7 +76,7 @@ flowchart LR
 | `report_html.py` | Styled CFO commentary page (tiles, cards, coverage bars), HTML-escaped |
 | `demo/` | Fictional demo explanations and recorded AI answers; rebuild with `scripts/record_demo.py` |
 | `app.py`, `ai_panel.py` | Streamlit interface |
-| `tests/` | 57 tests: engine, cost centres and roll-ups, evidence, review pack, agents, checker, provider connection and UI. No AI or network needed. |
+| `tests/` | 67 tests: engine, data loading and column mapping, cost centres and roll-ups, evidence, review pack, agents, checker, provider connection and UI. No AI or network needed. |
 
 ## Run it locally
 
@@ -96,7 +98,26 @@ Run the tests:
 
 ## Input format
 
-Download **sample input** and the **sample cost centre master** from the app sidebar and edit them in Excel (save as CSV UTF-8). Columns can be in any order; headers are matched case-insensitively.
+Choose a **Data source** in the sidebar:
+
+| Data source | Upload | Typical origin |
+| --- | --- | --- |
+| **One combined file** | One CSV or Excel file with actual, budget and forecast columns | A prepared variance file |
+| **Separate files** | **Actuals** (required), **Budget** (required), **Forecast** (optional), each CSV or Excel | Actuals from the ledger (GL export), budget from the planning tool, forecast from the latest reforecast |
+
+**Column mapping.** After upload, every column gets a dropdown (Month, Country / entity, Cost centre, GL account, Currency, Amount, cost centre name, function, owner, Extra dimension, Ignore), pre-filled from the column name. "Posting Period", "GL Account", "CC" and "Amount (INR)" are recognised, for example. Fix any guess with the dropdown; unknown columns such as Description default to Ignore.
+
+**Matching separate files:**
+- The actuals file sets the month; a full-year budget or forecast file is filtered to that month.
+- Rows are added up into lines, so transaction-level exports work. Credit notes can be negative or in brackets, but a line that nets negative stops the file.
+- An actual with no budget line is **unbudgeted (zero budget)**, and a budget with no actuals is **zero actual**. Both are listed, never hidden.
+- If one file lacks a level (e.g. budget by GL only), the files are matched without it, and the app says so.
+- **Data reconciliation** shows each file's rows, lines, ignored months and total against the totals used in the analysis.
+- Without a country or currency column, you type the entity name, and amounts are read as INR.
+
+Samples for both routes are in the sidebar; the separate samples (GL-style actuals CSV, full-year budget **Excel**, forecast CSV) rebuild the combined demo exactly.
+
+Standard columns (combined file or after mapping):
 
 | Column | Required? | Notes |
 | --- | --- | --- |
@@ -107,7 +128,7 @@ Download **sample input** and the **sample cost centre master** from the app sid
 
 - `month` is `YYYY-MM`, one month per file
 - `currency` is `INR`; all countries are already translated (no FX conversion)
-- Amounts are plain nonnegative numbers with at most 2 decimals: no currency symbols or thousands separators
+- Amounts are numbers with at most 2 decimals; thousands separators (1,20,000 or 120,000) are accepted, currency symbols are not
 - Every cell must be filled, and each month/country/cost centre/extra columns/account/currency combination must be unique
 
 **Cost centre master** (optional): `cost_center` plus any of `country`, `cc_name`, `function`, `owner`. Every cost centre in the data must be listed. If the data and the master disagree, the file is stopped rather than guessed.
@@ -132,6 +153,7 @@ Expense accounts only (no revenue or credits), one month per file, INR only. The
 2. ✅ Locked review pack + Excel/Markdown/JSON export, explanations backup and restore
 3. ✅ AI interviewer and CFO commentary writer with tick-and-tie checker; free local and free-tier AI
 3b. ✅ Cost centres, owners, extra dimensions, roll-ups with gross vs net, spread variances, heatmap, owner query lists
+3c. ✅ Separate actuals / budget / forecast uploads (CSV or Excel) with column-mapping dropdowns and reconciliation
 4. 🔜 CFO deck agent (python-pptx), running in parallel with the commentary agent on the same locked pack
 5. Hosted demo
 

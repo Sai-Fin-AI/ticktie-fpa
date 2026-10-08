@@ -97,6 +97,16 @@ Decisions: explanations at cost centre × account and rolled up; the user choose
 - ⬜ Expected cost centre × account roster (catch an account missing inside a cost centre)
 - ⬜ Allocations/recharges as a driver type; headcount per cost centre for rate vs volume
 
+### Phase 3c: Real-world inputs (done 8 Oct 2026)
+- ✅ Data source choice: one combined file, or separate actuals / budget / optional forecast files
+- ✅ CSV and Excel (first sheet); column-mapping dropdowns pre-filled from header names (GL, CC, Posting Period, Amount (INR)…)
+- ✅ Month formats (dates, Aug-26, 08/2026…); thousands separators; bracketed credits in separate files; lines must net nonnegative
+- ✅ Full-year budgets filtered to the actuals month; transactions summed into lines; unbudgeted and unspent lines listed
+- ✅ Files matched at the levels they share; reconciliation table of control totals per file
+- ✅ 10 new tests (67 total)
+- ⬜ Wide budgets (one column per month) and multi-sheet workbooks
+- ⬜ Remember a column mapping per source system
+
 ### Phase 4: CFO deck agent (≈4–5 days)
 - ⬜ `agents/deck.py` building a `.pptx` with python-pptx. Slides:
   1. Title & period

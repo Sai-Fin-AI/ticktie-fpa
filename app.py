@@ -3,12 +3,13 @@ from decimal import Decimal
 import hashlib
 import streamlit as st
 from finance import (CC, aggregate, apply_master, compare, dim_label, line_label, load_cc_master, load_csv,
-                     review_lines, sample_cc_master_csv, sample_csv)
+                     review_lines, sample_cc_master_csv)
 from evidence import STATUSES, TIMINGS, note_key, make_note, evidence_commentary
 from pack import (build_pack, lock_pack, pack_json, pack_excel, pack_markdown, export_notes, import_notes,
                   rollup_views)
 from report_html import heatmap_html
 from ai_panel import ai_settings, demo_notes_button, interviewer_section, reset_note_widgets, writer_section
+from data_panel import load_inputs, show_reconciliation, source_uploads
 
 st.set_page_config(page_title='FP&A Variance Assistant', page_icon='📊', layout='wide')
 st.title('FP&A Variance Assistant')
@@ -24,24 +25,20 @@ with st.sidebar:
     pct = Decimal(str(st.number_input('Minimum variance (%)', min_value=0.0, value=5.0, step=1.0)))
     line_box = st.container()
     st.caption('Both thresholds must be met. With a zero baseline, only the INR threshold applies.')
-    upload = st.file_uploader('Upload a one-month expense CSV', type=['csv'],
-                              help='Required columns in any order: month, country, account, currency, actual, budget, '
-                                   'forecast. Optional: cost_center, cc_name, function, owner, and any extra columns '
-                                   'such as project or region.')
+    st.header('Data')
+    mode, uploads = source_uploads()
     master_upload = st.file_uploader('Cost centre master (optional CSV)', type=['csv'],
                                      help='Columns: cost_center, plus any of country, cc_name, function, owner. '
                                           'Checks every cost centre is known and lists any with no data.')
-    st.download_button('Download sample input', sample_csv(), 'sample_expenses.csv', 'text/csv')
     st.download_button('Download sample cost centre master', sample_cc_master_csv(), 'sample_cost_centres.csv', 'text/csv')
     notes_upload = st.file_uploader('Restore saved explanations (JSON)', type=['json'],
                                     help='A file from "Download explanations". Notes are re-checked against the current data.')
 client = ai_settings()
 
 try:
-    raw = upload.getvalue() if upload is not None else sample_csv().encode()
+    inputs = load_inputs(mode, uploads)
     master_raw = master_upload.getvalue() if master_upload is not None else b''
-    source = ('upload:' + upload.name) if upload is not None else 'demo'
-    fingerprint = hashlib.sha256(source.encode() + b'\0' + raw + b'\0' + master_raw).hexdigest()
+    fingerprint = hashlib.sha256(inputs['fingerprint'].encode() + b'\0' + master_raw).hexdigest()
     if st.session_state.get('evidence_source') != fingerprint:
         had_notes = bool(st.session_state.get('business_notes'))
         st.session_state.business_notes = {}
@@ -53,11 +50,16 @@ try:
                 del st.session_state[key]
         if had_notes:
             st.warning('The input changed. Previous business explanations were cleared; enter notes for this data.')
-    dataset, checks = load_csv(raw.decode('utf-8-sig')), []
+    dataset, checks = load_csv(inputs['text']), []
+    for code, details in inputs['attrs'].items():  # cost centre details found in a separate actuals file
+        if code in dataset.attrs:
+            dataset.attrs[code].update(details)
     if master_raw:
         dataset, checks = apply_master(dataset, load_cc_master(master_raw.decode('utf-8-sig')))
-    elif upload is None:
+    elif inputs['demo']:
         dataset, checks = apply_master(dataset, load_cc_master(sample_cc_master_csv()))
+    if baseline == 'forecast' and not inputs['has_forecast']:
+        raise ValueError('No forecast file was uploaded. Compare against budget, or add a forecast file.')
 except (ValueError, UnicodeError) as error:
     st.error(str(error))
     st.stop()
@@ -95,12 +97,13 @@ if notes_upload is not None:
         except (ValueError, UnicodeError) as error:
             st.error(str(error))
 
-if upload is not None:
+if not inputs['demo']:
     st.info('Uploaded data is loaded. Review the figures and commentary before use.')
 else:
     st.info('Synthetic demo data is loaded. All sample records, cost centres and owners are fictional.')
 for check in checks:
     st.warning(check)
+show_reconciliation(inputs['report'], rows)
 if 'flash' in st.session_state:
     st.success(st.session_state.pop('flash'))
 
