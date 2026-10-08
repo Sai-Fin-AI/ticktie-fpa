@@ -44,7 +44,7 @@ try:
         had_notes = bool(st.session_state.get('business_notes'))
         st.session_state.business_notes = {}
         st.session_state.evidence_source = fingerprint
-        for key in ('locked_pack', 'notes_import', 'interview', 'ai_commentary'):
+        for key in ('locked_pack', 'notes_import', 'interview', 'ai_commentary', 'ai_deck'):
             st.session_state.pop(key, None)
         for key in list(st.session_state):
             if key.startswith('evidence_widget_'):
@@ -257,7 +257,8 @@ elif locked:
     d3.download_button('Pack data (JSON)', pack_json(locked), stem + '.json', 'application/json')
     writer_section(locked, client)
 else:
-    st.write('Not locked yet. Save explanations first, then lock the pack.')
+    st.write('Not locked yet. Save explanations first, then lock the pack. '
+             'The Excel pack, CFO commentary and CFO PowerPoint deck appear here once locked.')
 
 with st.expander('Finance rules and limitations'):
     st.write('Variance = actual minus comparison value. Positive expense variances are unfavorable. '

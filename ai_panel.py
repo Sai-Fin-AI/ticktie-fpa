@@ -120,9 +120,13 @@ def writer_section(locked, client):
     st.caption('Two agents read the same locked pack in parallel. The writer drafts commentary; the deck agent draws every '
                'chart and table from the pack and writes only the headlines. Both are tick-and-tied; failing commentary '
                'cannot be downloaded, and failing headlines are replaced by standard wording.')
-    if st.button('Draft CFO commentary and deck'):
+    b1, b2 = st.columns(2)
+    if b1.button('Draft CFO commentary and deck', type='primary'):
         with st.spinner('Two agents at work. A local model can take a minute or two.'):
             st.session_state.ai_commentary, st.session_state.ai_deck = run_agents(locked, client)
+    if b2.button('🖥️ CFO deck only (PowerPoint, no AI wait)',
+                 help='Builds the deck straight away with standard headlines written by the engine.'):
+        st.session_state.ai_deck = {'hash': locked['content_hash'], **make_deck(locked, None)}
     deck_section(locked)
     result = st.session_state.get('ai_commentary')
     if not result or result['hash'] != locked['content_hash']:

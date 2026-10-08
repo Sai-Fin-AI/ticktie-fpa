@@ -157,6 +157,15 @@ class DeckAppTests(unittest.TestCase):
         self.assertTrue(any('CFO deck' in x.value and '10 slides' in x.value for x in app.markdown))
         self.assertIn('✔ Tick-and-tie passed', app.session_state['ai_commentary']['html'])
 
+    def test_deck_only_button_needs_no_ai(self):
+        app = AppTest.from_file(str(APP), default_timeout=60).run()
+        button = lambda label: next(b for b in app.button if b.label.startswith(label))
+        button('Lock review pack').click().run()
+        button('🖥️ CFO deck only').click().run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.session_state['ai_deck']['source'], 'standard titles')
+        self.assertNotIn('ai_commentary', app.session_state)
+
 
 if __name__ == '__main__':
     unittest.main()
