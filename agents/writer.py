@@ -6,7 +6,7 @@ assembled by code from the pack, and every AI sentence is tick-and-tied before i
 import json
 from decimal import Decimal
 
-from agents import inr, line_facts, material_lines
+from agents import cost_centre, grouped_lines, inr, line_facts, material_lines, offset_sentences, owner
 from checker import allowed_figures, check_line_text, internal_codes, unsupported_figures
 from llm import AIError
 from pack import load_pack, pack_json, open_reason
@@ -24,9 +24,11 @@ Rules, in order of importance:
    Never attribute the whole movement to an explanation that covers only part of it.
 5. Use the outcome word given (favorable or unfavorable). Expense above plan is unfavorable.
 6. Plain, neutral CFO language. One to two sentences per line. No marketing words.
-7. Each line already has a heading with its country and account: do not repeat them at the start of the commentary.
-8. line_id values (L01, L02...) are internal. Never write them in the text; name the country and account instead.
-Executive summary: 2 to 4 short bullets covering the net result, the largest explained drivers and what remains open."""
+7. Each line already has a heading with its country, cost centre (if any) and account: do not repeat them at the start of the commentary.
+8. line_id values (L01, L02...) are internal. Never write them in the text; name the country, cost centre or account instead.
+9. A line marked why_in_scope is small on its own; say it is part of a wider account movement.
+Executive summary: 2 to 4 short bullets covering the net result, the largest explained drivers and what remains open.
+If "offsets" are given, one bullet must mention the largest one, copying its amounts."""
 
 SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': ['executive_summary', 'lines'], 'properties': {
     'executive_summary': {'type': 'array', 'minItems': 2, 'maxItems': 4, 'items': {'type': 'string'}},
@@ -42,6 +44,8 @@ def _facts(pack):
             'net_movement': f"{inr(t['variance'])} {'above' if Decimal(t['variance']) > 0 else 'below'} {basis}",
             'net_outcome': t['direction'], 'material_movements': s['material'],
             'explained_confirmed': inr(s['explained']), 'unexplained': inr(s['unexplained']), 'open_items': s['open_items'],
+            'analysed_by': ' x '.join(['country'] + [d.replace('_', ' ') for d in pack.get('grain', [])] + ['account']),
+            'offsets': offset_sentences(pack),
             'explained_lines': [line_facts(i, l, basis) for i, l in material_lines(pack) if l['note']]}
 
 
@@ -96,19 +100,25 @@ def to_markdown(pack, reply, issues, model):
     if issues:
         out += ['> **FAILED NUMBER CHECK. Do not use.** ' + '; '.join(issues), '']
     out += ['## Executive summary', ''] + [f'- {b}' for b in reply['executive_summary']] + ['', '## Material movements', '']
-    for line_id, line in lines:
-        status = STATUS_TAGS[line['note']['status']] if line['note'] else '⚪ Pending'
-        head = (f"{DOTS[line['direction']]} **{line['country']} | {line['account']}** "
-                f"({inr(line['variance'])} {line['direction'].lower()}) · {status}")
-        body = written.get(line_id) if line['note'] else 'Explanation pending from the account owner. No cause is assumed.'
-        out.append(f'{head}: {body or "Commentary missing."}\n')
+    for group, members in grouped_lines(pack):
+        if group:
+            flags = ''.join(f" · {'⇅' if f.startswith('Offset') else 'Σ'} {f}" for f in group['flags'])
+            out += [f"### {group['label']}: net {inr(group['net'])} {group['direction'].lower()} "
+                    f"(gross {inr(group['gross'])}){flags}", '']
+        for line_id, line in members:
+            status = STATUS_TAGS[line['note']['status']] if line['note'] else '⚪ Pending'
+            name = f"{cost_centre(line)} · {owner(line)}" if group and cost_centre(line) else line.get('label', f"{line['country']} | {line['account']}")
+            head = f"{DOTS[line['direction']]} **{name}** ({inr(line['variance'])} {line['direction'].lower()}) · {status}"
+            body = written.get(line_id) if line['note'] else 'Explanation pending from the owner. No cause is assumed.'
+            out.append(f'{head}: {body or "Commentary missing."}\n')
     opens = [(l, open_reason(l)) for _, l in lines if open_reason(l)]
     if opens:
-        out += ['## Open items', ''] + [f"- 🟠 {l['country']} | {l['account']}: {inr(l['unexplained'])} unexplained. {why}."
-                                        for l, why in opens] + ['']
+        out += ['## Open items', ''] + [f"- 🟠 {l.get('label', l['country'] + ' | ' + l['account'])}: {inr(l['unexplained'])} "
+                                        f"unexplained. {why}." for l, why in opens] + ['']
     actions = [(l, l['note']['action']) for _, l in lines if l['note'] and l['note']['action']]
     if actions:
-        out += ['## Actions proposed by reviewers', ''] + [f"- [ ] {l['country']} | {l['account']}: {a}" for l, a in actions] + ['']
+        out += ['## Actions proposed by reviewers', ''] + [f"- [ ] {l.get('label', l['country'] + ' | ' + l['account'])}: {a}"
+                                                           for l, a in actions] + ['']
     status = 'passed' if not issues else 'FAILED'
     out += ['---', f"Drafted by AI ({model}) from locked pack `{pack['content_hash'][:12]}`. "
                    f"Figures tick-and-tied to the pack: {status}. Explanations are reviewer-supplied. Review before use."]

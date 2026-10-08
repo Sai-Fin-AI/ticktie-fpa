@@ -85,6 +85,18 @@ Status: ✅ done · 🔜 next · ⬜ planned
 - ⬜ Critic agent: an AI second reviewer for loose paraphrasing that the rule-based checker can't judge
 - ⬜ Eval set: 10–20 golden cases (vague reason, conflicting notes, zero budget, favorable variance) scored for hallucinated numbers/causes. Publish the scores in `docs/EVALUATION.md`.
 
+### Phase 3b: Cost centres and flexible dimensions (done 8 Oct 2026)
+Decisions: explanations at cost centre × account and rolled up; the user chooses the analysis level; cost centre details come from columns or an optional master; any extra column becomes a dimension.
+- ✅ Columns in any order with aliases; optional `cost_center`, `cc_name`, `function`, `owner`; extra columns as dimensions
+- ✅ **Analyse by** selector; rows summed to the chosen level; the demo reconciles exactly to the account-level file
+- ✅ Cost centre master: unknown and contradicting cost centres stop the file; cost centres with no data are listed (completeness)
+- ✅ Separate thresholds for lines and account totals; spread-variance rule
+- ✅ Roll-ups by account, cost centre, function and extra dimensions, with gross vs net and offset flags (screen, Excel, AI facts, CFO page)
+- ✅ Heatmap; interviewer query list by owner (Markdown and CSV)
+- ✅ 15 new tests (57 total); demo re-recorded on `qwen3:8b`
+- ⬜ Expected cost centre × account roster (catch an account missing inside a cost centre)
+- ⬜ Allocations/recharges as a driver type; headcount per cost centre for rate vs volume
+
 ### Phase 4: CFO deck agent (≈4–5 days)
 - ⬜ `agents/deck.py` building a `.pptx` with python-pptx. Slides:
   1. Title & period

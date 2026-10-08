@@ -15,11 +15,32 @@ def material_lines(pack):
     return [(f'L{i:02d}', line) for i, line in enumerate((l for l in pack['lines'] if l['material']), 1)]
 
 
+def owner(line):
+    return line.get('attrs', {}).get('owner') or 'Unassigned owner'
+
+
+def cost_centre(line):
+    code = line.get('dims', {}).get('cost_center')
+    return f"{code} {line['attrs'].get('cc_name', '')}".strip() if code else None
+
+
+def account_group(pack, line):
+    """The country x account roll-up a line belongs to, if lines are finer than that."""
+    for entry in pack.get('rollups', {}).get('account', []):
+        if entry['label'] == f"{line['country']} | {line['account']}":
+            return entry
+    return None
+
+
 def line_facts(line_id, line, basis):
     facts = {'line_id': line_id, 'country': line['country'], 'account': line['account'],
              'movement': f"{inr(line['variance'])} {'above' if Decimal(line['variance']) > 0 else 'below'} {basis}",
              'variance_pct': pct_text(line), 'outcome': line['direction'],
              'explained_confirmed': inr(line['explained']), 'unexplained': inr(line['unexplained'])}
+    for name, value in line.get('dims', {}).items():
+        facts['cost_centre' if name == 'cost_center' else name] = cost_centre(line) if name == 'cost_center' else value
+    if line.get('scope') == 'Account total':
+        facts['why_in_scope'] = 'Below the line threshold, but part of an account total that is material only in aggregate.'
     if line['note']:
         n = line['note']
         facts.update({'explanation': n['reason'], 'reference': n['reference'], 'amount_stated': inr(n['amount']),
@@ -36,3 +57,24 @@ def coverage(line):
     if line['note']['status'] != 'Confirmed by reviewer':
         return f'Not counted until resolved: {inr(unexplained)} remains unexplained.'
     return f"The explanation covers {inr(line['explained'])} of the {variance}; {inr(unexplained)} remains unexplained."
+
+
+def grouped_lines(pack):
+    """[(account roll-up or None, [(line_id, line), ...])] in order of each group's largest line.
+
+    With account-level data there is one group with no roll-up, so the layout stays a flat list.
+    """
+    lines = material_lines(pack)
+    if not pack.get('grain'):
+        return [(None, lines)]
+    groups = {}
+    for line_id, line in lines:
+        groups.setdefault((line['country'], line['account']), []).append((line_id, line))
+    return [(account_group(pack, members[0][1]), members) for members in groups.values()]
+
+
+def offset_sentences(pack):
+    """Ready sentences for account totals whose net figure hides offsetting lines."""
+    return [f"{e['label']}: net {inr(e['net'])} {e['direction'].lower()}, but gross movement is {inr(e['gross'])}; "
+            f"offsetting lines hide {inr(e['hidden'])}."
+            for e in pack.get('rollups', {}).get('account', []) if 'Offsetting movements' in e['flags']]

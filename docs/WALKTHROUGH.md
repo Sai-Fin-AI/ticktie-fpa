@@ -2,6 +2,17 @@
 
 Hands-on checks for the demo data. Start the app first (see the [README](../README.md#run-it-locally)).
 
+The demo opens analysed by cost centre: 23 lines, 13 to explain. The checks below use the **account level**: in the sidebar, under **Analyse by**, remove **Cost centre**. The totals are identical at both levels, because the cost centre lines add up exactly to the account file.
+
+## Cost centre checks
+
+With **Cost centre** kept under **Analyse by**, on budget:
+
+- **View by → Account:** India Distribution shows net INR 200,000 but gross INR 280,000 (IN-OPS +240,000, IN-SAL −40,000), flagged ⇅ Offsetting movements. Singapore Employee costs is net INR 0 but gross INR 180,000.
+- **India Employee costs:** no cost centre crosses INR 25,000 and 10%, but the account total (+INR 100,000, 5%) is material, so all three lines are marked "Yes (account total)".
+- **Load demo explanations**, then **Ask the interviewer**: questions are grouped by owner (Priya Nair first) and can be downloaded as a query list.
+- The yellow completeness message names SG-COR: it is in the cost centre master but has no August rows.
+
 ## Your first finance check
 
 With demo data, budget comparison, all countries and default thresholds:

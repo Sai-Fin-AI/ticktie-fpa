@@ -8,7 +8,7 @@ APP = Path(__file__).resolve().parents[1] / 'app.py'
 
 class EvidenceTests(unittest.TestCase):
     def setUp(self):
-        self.row = next(r for r in analyze(load_csv(sample_csv()), 'forecast') if r['country'] == 'India' and r['account'] == 'Distribution')
+        self.row = next(r for r in analyze(load_csv(sample_csv('account')), 'forecast') if r['country'] == 'India' and r['account'] == 'Distribution')
 
     def note(self, amount='100000', status='Confirmed by reviewer', **kwargs):
         args = dict(reason='Extra freight for an urgent shipment.', reference='Fictional freight note', amount=amount, status=status, timing='One-off')
@@ -42,7 +42,7 @@ class EvidenceTests(unittest.TestCase):
             self.assertNotIn('Extra freight', evidence_commentary(row, basis, note))
 
     def test_favorable_is_not_proven_savings(self):
-        row = next(r for r in analyze(load_csv(sample_csv())) if r['variance'] < 0)
+        row = next(r for r in analyze(load_csv(sample_csv('account'))) if r['variance'] < 0)
         self.assertIn('does not by itself establish lasting savings', evidence_commentary(row, 'budget'))
 
 class EvidenceAppTests(unittest.TestCase):
@@ -51,6 +51,7 @@ class EvidenceAppTests(unittest.TestCase):
 
     def ready(self):
         app = AppTest.from_file(str(APP), default_timeout=20).run()
+        app.file_uploader[0].upload('account.csv', sample_csv('account').encode(), 'text/csv').run()
         self.widget(app.selectbox, 'Country').select('India').run()
         self.widget(app.selectbox, 'Compare actuals against').select('forecast').run()
         self.assertFalse(app.exception)
@@ -90,12 +91,28 @@ class EvidenceAppTests(unittest.TestCase):
         self.assertNotIn('Extra freight', self.text(app))
         self.widget(app.selectbox, 'Country').select('India').run()
         self.assertIn('Extra freight', self.text(app))
-        app.file_uploader[0].upload('new.csv', sample_csv().encode(), 'text/csv').run()
+        app.file_uploader[0].upload('new.csv', sample_csv('account').encode(), 'text/csv').run()
         self.assertFalse(app.exception)
         self.assertNotIn('Extra freight', self.text(app))
         self.assertTrue(any('cleared' in x.value for x in app.warning))
         app.file_uploader[0].clear().run()
         self.assertNotIn('Extra freight', self.text(app))
+
+    def test_cost_centre_note_shows_owner_and_rolls_up(self):
+        app = AppTest.from_file(str(APP), default_timeout=20).run()
+        self.widget(app.selectbox, 'Country').select('India').run()
+        box = self.widget(app.selectbox, 'Account to explain')
+        target = next(o for o in box.options if 'IN-OPS India Operations | Distribution' in o)
+        box.select(target).run()
+        self.assertTrue(any('Owner: Arjun Mehta' in x.value for x in app.caption))
+        self.save(app, '180000')
+        self.assertTrue(any('Explanation saved' in x.value for x in app.success))
+        self.assertIn('Unexplained amount: INR 60,000.00', self.text(app))
+        next(x for x in app.radio if x.label == 'View by').set_value('Account').run()
+        frame = app.dataframe[0].value
+        row = frame.loc[frame['Account'] == 'India | Distribution'].iloc[0]
+        self.assertEqual((row['Explained INR'], row['Gross movement INR'], row['Net variance INR']), (180000, 280000, 200000))
+        self.assertIn('Offsetting', row['Flags'])
 
     def test_invalid_save_and_session_isolation(self):
         app = self.ready()

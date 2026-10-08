@@ -5,15 +5,16 @@
       "key": [
         "2026-08",
         "India",
+        "cost_center=IN-OPS",
         "Distribution",
         "INR",
-        "1200000",
-        "1000000",
+        "940000",
+        "700000",
         "budget"
       ],
       "reason": "Urgent air freight for festive-season launch stock after a supplier delay.",
       "reference": "Fictional freight invoices FR-0812",
-      "amount": "150000",
+      "amount": "180000",
       "status": "Confirmed by reviewer",
       "timing": "One-off",
       "action": "Agree a lead-time buffer with the supplier."
@@ -22,10 +23,11 @@
       "key": [
         "2026-08",
         "Australia",
+        "cost_center=AU-SAL",
         "Employee costs",
         "INR",
-        "1850000",
-        "2000000",
+        "850000",
+        "1000000",
         "budget"
       ],
       "reason": "Two open roles in the Sydney sales team were vacant for all of August.",
@@ -38,16 +40,35 @@
     {
       "key": [
         "2026-08",
-        "India",
+        "Singapore",
+        "cost_center=SG-OPS",
         "Employee costs",
         "INR",
-        "2100000",
-        "2000000",
+        "710000",
+        "800000",
+        "budget"
+      ],
+      "reason": "Two warehouse supervisors moved to the Singapore Sales cost centre in July; their pay is now charged to SG-SAL.",
+      "reference": "Fictional HR transfer forms",
+      "amount": "90000",
+      "status": "Confirmed by reviewer",
+      "timing": "Recurring",
+      "action": "Move the budget for both roles to SG-SAL in the reforecast."
+    },
+    {
+      "key": [
+        "2026-08",
+        "India",
+        "cost_center=IN-SAL",
+        "Employee costs",
+        "INR",
+        "960000",
+        "900000",
         "budget"
       ],
       "reason": "Higher costs.",
       "reference": "Email from HR",
-      "amount": "100000",
+      "amount": "60000",
       "status": "Unconfirmed",
       "timing": "Unknown",
       "action": ""
@@ -56,15 +77,16 @@
       "key": [
         "2026-08",
         "Australia",
+        "cost_center=AU-OPS",
         "Distribution",
         "INR",
-        "1100000",
-        "1000000",
+        "670000",
+        "600000",
         "budget"
       ],
       "reason": "Logistics says carrier rates rose; commercial says volume grew with new stores.",
       "reference": "Fictional carrier notice and store opening plan",
-      "amount": "100000",
+      "amount": "70000",
       "status": "Conflicting explanations",
       "timing": "Recurring",
       "action": ""
@@ -73,6 +95,7 @@
       "key": [
         "2026-08",
         "India",
+        "cost_center=IN-COR",
         "Consulting",
         "INR",
         "75000",

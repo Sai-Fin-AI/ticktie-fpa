@@ -6,7 +6,7 @@ page reads in black-and-white print and for colour-blind readers. All text is HT
 from decimal import Decimal
 from html import escape
 
-from agents import material_lines, pct_text
+from agents import cost_centre, grouped_lines, material_lines, owner, pct_text
 from pack import open_reason
 
 RED, GREEN, AMBER, GREY, BLUE = '#b42318', '#027a48', '#b54708', '#667085', '#175cd3'
@@ -58,17 +58,86 @@ def _coverage_bar(line):
             f'<div style="font-size:12px;color:{GREY};margin-top:4px">{escape(label)}</div></div>')
 
 
-def _card(line, text):
+def _compact(value):
+    value = Decimal(value)
+    if value == 0:
+        return '0'
+    sign = '+' if value > 0 else '−'
+    value = abs(value)
+    if value >= 10 ** 6:
+        return f'{sign}{value / 10 ** 6:.1f}m'
+    return f'{sign}{value / 1000:.0f}k' if value >= 1000 else f'{sign}{value:.0f}'
+
+
+def heatmap_html(pack, country=None):
+    """Grid of variance by line (rows) and account (columns). Red = overspend, green = underspend; bold = needs explanation."""
+    lines = [l for l in pack['lines'] if country in (None, l['country'])]
+    if not lines:
+        return ''
+    accounts = list(dict.fromkeys(l['account'] for l in lines))
+    row_names = list(dict.fromkeys(l['label'].rsplit(' | ', 1)[0] for l in lines))
+    cells = {(l['label'].rsplit(' | ', 1)[0], l['account']): l for l in lines}
+    peak = max(abs(Decimal(l['variance'])) for l in lines) or Decimal(1)
+
+    def cell(line):
+        if line is None:
+            return f'<td style="padding:6px 8px;text-align:center;color:#d0d5dd;border:1px solid #f2f4f7">·</td>'
+        value = Decimal(line['variance'])
+        alpha = float(min(Decimal(1), abs(value) / peak)) * 0.85 + (0.08 if value else 0)
+        rgb = '180,35,24' if value > 0 else '2,122,72'
+        strong = 'font-weight:700;outline:2px solid #101828;outline-offset:-2px' if line['material'] else ''
+        ink = '#fff' if alpha > 0.55 else '#101828'
+        return (f'<td title="{escape(line["label"])}: {escape(_inr(value))}" style="padding:6px 8px;text-align:center;'
+                f'background:rgba({rgb},{alpha:.2f});color:{ink};border:1px solid #fff;{strong}">{_compact(value)}</td>')
+
+    def total(values):
+        value = sum(values, Decimal(0))
+        colour = RED if value > 0 else GREEN if value < 0 else GREY
+        return f'<td style="padding:6px 8px;text-align:center;font-weight:700;color:{colour};background:#f9fafb">{_compact(value)}</td>'
+
+    head = ''.join(f'<th style="padding:6px 8px;font-size:12px;color:{GREY};font-weight:600">{escape(a)}</th>' for a in accounts)
+    body = ''.join(
+        f'<tr><th style="padding:6px 8px;text-align:left;font-size:12px;font-weight:600;white-space:nowrap">{escape(r)}</th>'
+        + ''.join(cell(cells.get((r, a))) for a in accounts)
+        + total(Decimal(l['variance']) for (name, _), l in cells.items() if name == r) + '</tr>' for r in row_names)
+    foot = ('<tr><th style="padding:6px 8px;text-align:left;font-size:12px">Net</th>'
+            + ''.join(total(Decimal(l['variance']) for l in lines if l['account'] == a) for a in accounts)
+            + total(Decimal(l['variance']) for l in lines) + '</tr>')
+    return (f'<div style="{FONT};overflow-x:auto"><table style="border-collapse:collapse;font-size:13px;background:#fff;border-radius:10px">'
+            f'<tr><th></th>{head}<th style="padding:6px 8px;font-size:12px;color:{GREY}">Net</th></tr>{body}{foot}</table>'
+            f'<div style="font-size:12px;color:{GREY};margin-top:6px">Variance vs {escape(pack["basis"])} in INR. '
+            '<span style="color:#b42318">■</span> overspend (unfavorable) · <span style="color:#027a48">■</span> underspend (favorable) · '
+            'darker = larger · outlined bold = needs explanation · · = no data</div></div>')
+
+
+def _group_header(group):
+    label, colour = _direction(group['direction'])
+    flags = ''.join(_chip(f'⇅ {f}' if f == 'Offsetting movements' else f'Σ {f}', AMBER) for f in group['flags'])
+    hidden = (f" · gross {escape(_inr(group['gross']))}, offsets hide {escape(_inr(group['hidden']))}"
+              if 'Offsetting movements' in group['flags'] else '')
+    return (f'<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;'
+            f'margin:16px 0 8px;padding:8px 12px;border-radius:8px;background:#fff;border:1px solid #eaecf0">'
+            f'<div><b>{escape(group["label"])}</b> <span style="color:{GREY};font-size:13px">· net '
+            f'<b style="color:{colour}">{escape(_inr(group["net"]))}</b> {escape(label)}{hidden}</span></div>'
+            f'<div>{flags}</div></div>')
+
+
+def _card(line, text, grouped=False):
     label, colour = _direction(line['direction'])
     icon, status, status_colour = STATUS[line['note']['status'] if line['note'] else None]
     chips = _chip(f'{label} · {pct_text(line)}', colour) + _chip(f'{icon} {status}', status_colour)
     if line['note']:
         chips += _chip(TIMING[line['note']['timing']], BLUE if line['note']['timing'] != 'Unknown' else GREY)
+    if line.get('scope') == 'Account total':
+        chips += _chip('Σ Part of a material account total', AMBER)
+    title = (escape(cost_centre(line)) if grouped and cost_centre(line)
+             else escape(line.get('label', f"{line['country']} | {line['account']}")).replace(' | ', f' <span style="color:{GREY}">|</span> '))
+    if line.get('attrs', {}).get('owner'):
+        title += f' <span style="font-weight:500;color:{GREY};font-size:13px">· 👤 {escape(owner(line))}</span>'
     return (f'<div style="border:1px solid #eaecf0;border-left:5px solid {colour};border-radius:10px;padding:14px 16px;'
-            f'margin:0 0 12px;background:#fff">'
+            f'margin:0 0 12px;{"margin-left:16px;" if grouped else ""}background:#fff">'
             f'<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline">'
-            f'<div style="font-size:15px;font-weight:700">{escape(line["country"])} <span style="color:{GREY}">|</span> '
-            f'{escape(line["account"])}</div>'
+            f'<div style="font-size:15px;font-weight:700">{title}</div>'
             f'<div style="font-size:15px;font-weight:700;color:{colour}">{escape(_inr(line["variance"]))}</div></div>'
             f'<div style="margin-top:8px">{chips}</div>'
             f'<div style="font-size:14px;line-height:1.55;color:#344054;margin-top:4px">{escape(text)}</div>'
@@ -104,23 +173,32 @@ def commentary_html(pack, reply, issues, model):
     out.append(f'<div style="background:{TINT[BLUE]};border:1px solid {BLUE}33;border-radius:10px;padding:12px 16px">'
                '<ul style="margin:0;padding-left:20px;line-height:1.7;font-size:14px">'
                + ''.join(f'<li>{escape(b)}</li>' for b in reply['executive_summary']) + '</ul></div>')
-    out.append(_section(f"Material movements ({s['material']})"))
-    for line_id, line in material_lines(pack):
-        text = written.get(line_id, 'Commentary missing.') if line['note'] else 'Explanation pending from the account owner. No cause is assumed.'
-        out.append(_card(line, text))
+    if pack.get('grain'):
+        out.append(_section('Where the variance sits'))
+        out.append(heatmap_html(pack))
+    out.append(_section(f"Lines needing explanation ({s['material']})"))
+    for group, members in grouped_lines(pack):
+        if group:
+            out.append(_group_header(group))
+        for line_id, line in members:
+            text = written.get(line_id, 'Commentary missing.') if line['note'] else 'Explanation pending from the owner. No cause is assumed.'
+            out.append(_card(line, text, grouped=group is not None))
     opens = [(l, open_reason(l)) for _, l in material_lines(pack) if open_reason(l)]
+    def open_row(line, why):
+        who = f' · 👤 {escape(owner(line))}' if line.get('attrs', {}).get('owner') else ''
+        return (f'<div style="display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px dashed {AMBER}44;font-size:14px">'
+                f'<span>🟠 <b>{escape(line.get("label", line["country"] + " | " + line["account"]))}</b> · {escape(why)}{who}</span>'
+                f'<span style="font-weight:700;color:{AMBER};white-space:nowrap">{escape(_inr(line["unexplained"]))}</span></div>')
+
     if opens:
         out.append(_section(f'Open items ({len(opens)})', AMBER))
-        out.append(f'<div style="background:{TINT[AMBER]};border:1px solid {AMBER}33;border-radius:10px;padding:6px 16px">' + ''.join(
-            f'<div style="display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px dashed {AMBER}44;font-size:14px">'
-            f'<span>🟠 <b>{escape(l["country"])} | {escape(l["account"])}</b> · {escape(why)}</span>'
-            f'<span style="font-weight:700;color:{AMBER};white-space:nowrap">{escape(_inr(l["unexplained"]))}</span></div>'
-            for l, why in opens) + '</div>')
+        out.append(f'<div style="background:{TINT[AMBER]};border:1px solid {AMBER}33;border-radius:10px;padding:6px 16px">'
+                   + ''.join(open_row(l, why) for l, why in opens) + '</div>')
     actions = [l for _, l in material_lines(pack) if l['note'] and l['note']['action']]
     if actions:
         out.append(_section('Actions proposed by reviewers', GREEN))
         out.append('<div style="background:#fff;border:1px solid #eaecf0;border-radius:10px;padding:6px 16px">' + ''.join(
-            f'<div style="padding:7px 0;font-size:14px">☐ <b>{escape(l["country"])} | {escape(l["account"])}</b>: '
+            f'<div style="padding:7px 0;font-size:14px">☐ <b>{escape(l.get("label", l["country"] + " | " + l["account"]))}</b>: '
             f'{escape(l["note"]["action"])}</div>' for l in actions) + '</div>')
     check = (f'<span style="color:{GREEN};font-weight:700">✔ Tick-and-tie passed</span>' if not issues
              else f'<span style="color:{RED};font-weight:700">✖ Tick-and-tie failed</span>')

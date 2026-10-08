@@ -6,7 +6,7 @@ The AI only judges whether the wording of an explanation is specific enough.
 import json
 from decimal import Decimal
 
-from agents import inr, line_facts, material_lines
+from agents import inr, line_facts, material_lines, owner
 from checker import allowed_figures, unsupported_figures
 from llm import AIError
 
@@ -26,6 +26,9 @@ SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': ['reviews
 
 def rule_questions(line, basis):
     note, variance = line['note'], Decimal(line['variance'])
+    if note is None and line.get('scope') == 'Account total':
+        return [f"This {inr(variance)} is below the line threshold, but the {line['account']} total is material once "
+                f"all lines are added up. What drove your share, and what document supports it?"]
     if note is None:
         return [f"No explanation yet. What drove this {inr(variance)} {'overspend' if variance > 0 else 'underspend'} "
                 f"against {basis}, and what document supports it?"]
@@ -49,13 +52,14 @@ def interview(pack, client):
     basis, findings = pack['basis'], []
     for line_id, line in material_lines(pack):
         findings.append({'line_id': line_id, 'country': line['country'], 'account': line['account'],
-                         'movement': f"{inr(line['variance'])} {line['direction'].lower()}",
+                         'label': line.get('label', f"{line['country']} | {line['account']}"), 'owner': owner(line),
+                         'movement': f"{inr(line['variance'])} {line['direction'].lower()}", 'open': inr(line['unexplained']),
                          'questions': rule_questions(line, basis), 'quality': None if line['note'] else 'missing'})
     explained = [(i, l) for i, l in material_lines(pack) if l['note']]
     if not explained:
         return findings, None
     facts = [{k: v for k, v in line_facts(i, l, basis).items()
-              if k in ('line_id', 'country', 'account', 'outcome', 'explanation')} for i, l in explained]
+              if k in ('line_id', 'country', 'cost_centre', 'account', 'outcome', 'explanation')} for i, l in explained]
     try:
         reply = client.complete('interview', pack['content_hash'], SYSTEM, json.dumps(facts, ensure_ascii=False), SCHEMA)
     except AIError as error:
@@ -71,3 +75,35 @@ def interview(pack, client):
         if review['quality'] == 'vague' and question and not unsupported_figures(question, allowed):
             finding['questions'].insert(0, question)
     return findings, None
+
+
+def by_owner(findings):
+    """{owner: [findings with questions]}, owners with the most questions first."""
+    groups = {}
+    for f in findings:
+        if f['questions']:
+            groups.setdefault(f['owner'], []).append(f)
+    return dict(sorted(groups.items(), key=lambda kv: (-sum(len(f['questions']) for f in kv[1]), kv[0])))
+
+
+def query_list_markdown(findings, period, basis):
+    out = [f'# Month-end query list: {period} vs {basis}', '']
+    for name, items in by_owner(findings).items():
+        out += [f"## {name}: {sum(len(f['questions']) for f in items)} question(s)", '']
+        for f in items:
+            out.append(f"**{f['label']}** · {f['movement']} · {f['open']} open")
+            out += [f'- [ ] {q}' for q in f['questions']] + ['']
+    return '\n'.join(out) + '\n'
+
+
+def query_list_csv(findings):
+    import csv
+    import io
+    output = io.StringIO(newline='')
+    writer = csv.writer(output)
+    writer.writerow(('owner', 'line', 'movement', 'open_amount', 'question'))
+    for name, items in by_owner(findings).items():
+        for f in items:
+            for q in f['questions']:
+                writer.writerow((name, f['label'], f['movement'], f['open'], q))
+    return output.getvalue()

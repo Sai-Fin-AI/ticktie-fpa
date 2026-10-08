@@ -4,7 +4,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from agents.interviewer import interview
+from agents.interviewer import by_owner, interview, query_list_csv, query_list_markdown
 from agents.writer import write_commentary
 from llm import DEMO, PROVIDERS, AIError, Client
 from pack import import_notes
@@ -53,14 +53,16 @@ def ai_settings():
 
 def demo_notes_button(rows):
     if st.button('Load demo explanations', help='Fictional notes covering confirmed, partial, vague, unconfirmed, '
-                                                'conflicting and missing explanations. Budget comparison only.'):
+                                                'conflicting and missing explanations. Sample data, budget comparison, '
+                                                'analysed by cost centre.'):
         restored, _ = import_notes(DEMO_NOTES.read_text(encoding='utf-8'), rows)
         if restored:
             st.session_state.business_notes.update(restored)
             reset_note_widgets()
             st.success(f'Loaded {len(restored)} demo explanations for the budget comparison.')
         else:
-            st.info('Demo explanations only match the sample data. Clear the uploaded file to use them.')
+            st.info('Demo explanations only match the sample data analysed by cost centre. '
+                    'Clear any uploaded file and keep "Cost centre" under Analyse by.')
 
 
 def interviewer_section(pack, client):
@@ -79,12 +81,23 @@ def interviewer_section(pack, client):
         return
     if result['message']:
         st.warning(result['message'] + ' Rule-based questions are still shown.')
-    open_lines = [f for f in result['findings'] if f['questions']]
-    if not open_lines:
+    owners = by_owner(result['findings'])
+    if not owners:
         st.success('No follow-up questions. The explanations are ready to lock.')
-    for finding in open_lines:
-        st.markdown(f"**{finding['country']} | {finding['account']}** · {finding['movement']} · {QUALITY[finding['quality']]}\n"
-                    + '\n'.join(f'- {q}' for q in finding['questions']))
+        return
+    total = sum(len(f['questions']) for items in owners.values() for f in items)
+    st.caption(f'{total} question(s) for {len(owners)} owner(s). Send each owner their list.')
+    for name, items in owners.items():
+        count = sum(len(f['questions']) for f in items)
+        with st.expander(f'👤 {name} · {count} question(s) · {len(items)} line(s)', expanded=len(owners) <= 3):
+            for finding in items:
+                st.markdown(f"**{finding['label']}** · {finding['movement']} · {finding['open']} open · {QUALITY[finding['quality']]}\n"
+                            + '\n'.join(f'- {q}' for q in finding['questions']))
+    stem = f"query_list_{pack['period']}_{pack['basis']}"
+    c1, c2 = st.columns(2)
+    c1.download_button('Query list by owner (Markdown)', query_list_markdown(result['findings'], pack['period'], pack['basis']),
+                       stem + '.md', 'text/markdown')
+    c2.download_button('Query list by owner (CSV for Excel)', query_list_csv(result['findings']), stem + '.csv', 'text/csv')
 
 
 def writer_section(locked, client):

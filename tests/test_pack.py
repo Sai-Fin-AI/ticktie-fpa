@@ -21,7 +21,7 @@ def india_distribution(rows, basis='forecast'):
 
 class PackTests(unittest.TestCase):
     def setUp(self):
-        self.rows = load_csv(sample_csv())
+        self.rows = load_csv(sample_csv('account'))
         self.row = india_distribution(self.rows)
 
     def notes(self, amount='100000', status='Confirmed by reviewer'):
@@ -85,7 +85,7 @@ class PackTests(unittest.TestCase):
         notes = self.notes('60000')
         restored, skipped = import_notes(export_notes(notes), self.rows)
         self.assertEqual((restored, skipped), (notes, 0))
-        changed = load_csv(sample_csv().replace('1200000', '1250000', 1))
+        changed = load_csv(sample_csv('account').replace('1200000', '1250000', 1))
         self.assertEqual(import_notes(export_notes(notes), changed), ({}, 1))
         data = json.loads(export_notes(notes))
         data['notes'][0]['amount'] = '999999999'
@@ -93,6 +93,46 @@ class PackTests(unittest.TestCase):
         for bad in ('', '[]', '{"notes": "x", "schema_version": "1"}'):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 import_notes(bad, self.rows)
+
+
+class CostCentrePackTests(unittest.TestCase):
+    def setUp(self):
+        from finance import aggregate, apply_master, load_cc_master, sample_cc_master_csv
+        data, _ = apply_master(load_csv(sample_csv()), load_cc_master(sample_cc_master_csv()))
+        self.rows = aggregate(data, data.dims)
+        self.pack = build_pack(self.rows, 'budget', D('25000'), D('10'), {}, (AMOUNT, PCT))
+
+    def test_rollups_gross_net_offsets_and_spread(self):
+        accounts = {e['label']: e for e in self.pack['rollups']['account']}
+        dist = accounts['India | Distribution']
+        self.assertEqual((dist['net'], dist['gross'], dist['hidden']), ('200000', '280000', '80000'))
+        self.assertEqual(dist['flags'], ['Offsetting movements'])
+        self.assertEqual((accounts['Singapore | Employee costs']['net'], accounts['Singapore | Employee costs']['gross']), ('0', '180000'))
+        self.assertEqual(accounts['India | Employee costs']['flags'], ['Material in total only'])
+        self.assertEqual(set(self.pack['rollups']), {'account', 'cost_center', 'function'})
+        self.assertEqual(self.pack['grain'], ['cost_center'])
+        self.assertEqual(self.pack['totals']['variance'], '380000')
+        line = next(l for l in self.pack['lines'] if l['dims'] == {'cost_center': 'IN-OPS'} and l['account'] == 'Distribution')
+        self.assertEqual((line['label'], line['attrs']['owner']), ('India | IN-OPS India Operations | Distribution', 'Arjun Mehta'))
+
+    def test_excel_has_dimension_columns_and_rollup_sheets(self):
+        book = load_workbook(io.BytesIO(pack_excel(lock_pack(self.pack))))
+        self.assertEqual(book.sheetnames, ['Summary', 'Variances', 'Explanations', 'Open items',
+                                           'By account', 'By cost centre', 'By function'])
+        header = [c.value for c in book['Variances'][1]]
+        self.assertEqual(header[:4], ['Country', 'Cost centre', 'Account', 'Owner'])
+        self.assertEqual(book['Variances'].max_row, 24)
+        flags = {r[0]: r[9] for r in book['By account'].iter_rows(min_row=2, values_only=True)}
+        self.assertEqual(flags['India | Distribution'], 'Offsetting movements')
+
+    def test_cost_centre_notes_round_trip(self):
+        row = next(r for r in analyze(self.rows, 'budget') if r['cost_center'] == 'IN-OPS' and r['account'] == 'Distribution')
+        note = make_note(row, 'budget', 'Air freight.', 'Ref', '180000', 'Confirmed by reviewer', 'One-off')
+        self.assertIn('cost_center=IN-OPS', note['key'])
+        restored, skipped = import_notes(export_notes({note['key']: note}), self.rows)
+        self.assertEqual((list(restored), skipped), ([note['key']], 0))
+        from finance import aggregate
+        self.assertEqual(import_notes(export_notes({note['key']: note}), aggregate(self.rows, ())), ({}, 1))
 
 
 class PackAppTests(unittest.TestCase):
@@ -104,21 +144,22 @@ class PackAppTests(unittest.TestCase):
         self.assertIn('Not locked yet', ''.join(x.value for x in app.markdown))
         self.widget(app.button, 'Lock review pack').click().run()
         self.assertFalse(app.exception)
-        self.assertTrue(any('Pack locked' in x.value and '9 material movements' in x.value for x in app.success))
+        self.assertTrue(any('Pack locked' in x.value and '13 material movements' in x.value for x in app.success))
         self.widget(app.number_input, 'Minimum variance (INR)').set_value(60000).run()
         self.assertTrue(any('changed since the pack was locked' in x.value for x in app.warning))
         self.widget(app.button, 'Lock review pack').click().run()
         self.assertFalse(any('changed since' in x.value for x in app.warning))
 
     def test_restore_explanations_from_file(self):
-        rows = load_csv(sample_csv())
+        rows = load_csv(sample_csv('account'))
         row = india_distribution(rows)
         note = make_note(row, 'forecast', 'Extra freight for an urgent shipment.', 'Fictional freight note',
                          '60000', 'Confirmed by reviewer', 'One-off')
         app = AppTest.from_file(str(APP), default_timeout=20).run()
+        app.file_uploader[0].upload('account.csv', sample_csv('account').encode(), 'text/csv').run()
         self.widget(app.selectbox, 'Country').select('India').run()
         self.widget(app.selectbox, 'Compare actuals against').select('forecast').run()
-        app.file_uploader[1].upload('explanations.json', export_notes({note_key(row, 'forecast'): note}).encode(),
+        app.file_uploader[2].upload('explanations.json', export_notes({note_key(row, 'forecast'): note}).encode(),
                                     'application/json').run()
         self.assertFalse(app.exception)
         self.assertTrue(any('Restored 1 explanation' in x.value for x in app.success))

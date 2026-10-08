@@ -9,7 +9,10 @@ TIMINGS = ('Unknown', 'One-off', 'Recurring', 'Timing difference')
 
 
 def note_key(row, baseline):
-    return tuple(str(row[k]) for k in ('month', 'country', 'account', 'currency', 'actual', baseline)) + (baseline,)
+    """Identifies one line and comparison. Lines without extra dimensions keep the original key format."""
+    dims = tuple(f'{d}={row[d]}' for d in row.get('dims', ()))
+    return (str(row['month']), str(row['country']), *dims,
+            *(str(row[k]) for k in ('account', 'currency', 'actual', baseline)), baseline)
 
 
 def make_note(row, baseline, reason, reference, amount, status, timing, action=''):

@@ -5,7 +5,8 @@ from decimal import Decimal, InvalidOperation
 UNITS = {'lakh': Decimal('1e5'), 'lakhs': Decimal('1e5'), 'lac': Decimal('1e5'), 'crore': Decimal('1e7'),
          'crores': Decimal('1e7'), 'cr': Decimal('1e7'), 'million': Decimal('1e6'), 'mn': Decimal('1e6'),
          'k': Decimal('1e3'), 'thousand': Decimal('1e3')}
-NUMBER = re.compile(r'(?<![\w.])(\d[\d,]*(?:\.\d+)?)\s*(%|percent\b|lakhs?\b|lac\b|crores?\b|cr\b|million\b|mn\b|k\b|thousand\b)?', re.I)
+# Digits inside codes such as CC-1001 or FY27 are not figures, hence the look-behind.
+NUMBER = re.compile(r'(?<![\w.\-/])(\d[\d,]*(?:\.\d+)?)\s*(%|percent\b|lakhs?\b|lac\b|crores?\b|cr\b|million\b|mn\b|k\b|thousand\b)?', re.I)
 
 
 def _dec(value):
@@ -19,10 +20,18 @@ def allowed_figures(pack):
     for value in (t['actual'], t['baseline'], t['variance'], s['explained'], s['unexplained'],
                   pack['thresholds']['amount']):
         amounts.add(abs(_dec(value)))
-    pcts.add(_dec(pack['thresholds']['pct']))
+    th = pack['thresholds']
+    pcts.update(_dec(th[k]) for k in ('pct', 'total_pct') if th.get(k) is not None)
+    amounts.update(_dec(th[k]) for k in ('total_amount',) if th.get(k) is not None)
     if t['pct'] is not None:
         pcts.add(abs(_dec(t['pct'])))
     counts = {s['rows'], s['material'], s['open_items'], len({l['country'] for l in pack['lines']})}
+    for entries in pack.get('rollups', {}).values():
+        for e in entries:
+            amounts.update(abs(_dec(e[k])) for k in ('actual', 'baseline', 'net', 'gross', 'hidden', 'explained', 'unexplained'))
+            if e['pct'] is not None:
+                pcts.add(abs(_dec(e['pct'])))
+            counts.update((e['lines'], e['to_explain']))
     for line in pack['lines']:
         for key in ('actual', 'baseline', 'variance', 'explained', 'unexplained'):
             if line[key] is not None:
