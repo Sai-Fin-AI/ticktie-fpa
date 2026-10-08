@@ -66,7 +66,7 @@ def demo_notes_button(rows):
 
 
 def interviewer_section(pack, client):
-    st.subheader('AI interviewer')
+    st.subheader('🤖 AI interviewer')
     st.caption('Reviews explanations for all countries before you lock. Fixed rules flag missing, unconfirmed and '
                'partial explanations and unknown timing; the AI flags vague wording and suggests a follow-up question.')
     if st.button('Ask the interviewer'):
@@ -101,7 +101,7 @@ def interviewer_section(pack, client):
 
 
 def writer_section(locked, client):
-    st.subheader('AI CFO commentary')
+    st.subheader('📊 AI CFO commentary')
     st.caption('Drafts commentary from the locked pack only. Lines without explanations get fixed wording; '
                'open items and actions come straight from the pack. Drafts that fail the tick-and-tie cannot be downloaded.')
     if st.button('Draft CFO commentary'):

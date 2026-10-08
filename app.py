@@ -10,11 +10,12 @@ from pack import (build_pack, lock_pack, pack_json, pack_excel, pack_markdown, e
 from report_html import heatmap_html
 from ai_panel import ai_settings, demo_notes_button, interviewer_section, reset_note_widgets, writer_section
 from data_panel import load_inputs, show_reconciliation, source_uploads
+import pandas as pd
+from style import apply_style, colour_table, hero, money_columns, section
 
 st.set_page_config(page_title='FP&A Variance Assistant', page_icon='📊', layout='wide')
-st.title('FP&A Variance Assistant')
-st.caption('Project 1 · Expense analysis · INR reporting currency · Version 0.5')
-st.caption('Figures come from fixed rules. AI drafts wording only, and every AI figure is checked against the locked pack.')
+apply_style()
+hero_box = st.container()  # filled once the data is known
 
 with st.sidebar:
     st.header('Analysis settings')
@@ -116,45 +117,62 @@ plan = sum(r[baseline] for r in selected)
 total = compare(actual, plan, *(total_thresholds or line_thresholds))
 material = [r for r in result if r['material']]
 current_pack = build_pack(rows, baseline, *line_thresholds, st.session_state.business_notes, total_thresholds)
-c1, c2, c3, c4 = st.columns(4)
+with hero_box:
+    hero('FP&A Variance Assistant',
+         'Variance analysis that never invents a cause. Figures come from fixed rules; AI drafts wording only, '
+         'and every AI figure is checked against the locked pack.',
+         [f"📅 {rows[0]['month']}", f'⚖️ Actual vs {baseline}', f'🧭 {level_name}',
+          '🧪 Demo data' if inputs['demo'] else '📂 Uploaded data', '💱 INR', 'v0.6'])
+in_scope = [l for l in current_pack['lines'] if l['material'] and in_view(l)]
+gap = sum(abs(Decimal(l['variance'])) for l in in_scope)
+explained = sum(Decimal(l['explained']) for l in in_scope)
+c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric('Actual expense · INR', f'{actual:,.0f}')
 c2.metric(f'{baseline.title()} · INR', f'{plan:,.0f}')
-c3.metric('Net variance · INR', f"{total['variance']:+,.0f}")
+c3.metric('Net variance · INR', f"{total['variance']:+,.0f}",
+          delta=f"{total['pct']:+.1f}% vs {baseline}" if total['pct'] is not None else None, delta_color='inverse',
+          help='Red arrow up = spend above plan (unfavorable); green arrow down = below plan.')
 c4.metric('Lines to explain', len(material))
+c5.metric('Explained (confirmed)', f'{explained / gap * 100:.0f}%' if gap else '–',
+          help='Confirmed explanations as a share of the lines that need one.')
 st.caption(f"Period: {selected[0]['month']} · {len(selected)} lines analysed by {level_name} · "
            f"Net outcome: {total['direction']}. Individual favorable and unfavorable movements can offset in the total.")
 
 if grain:
-    st.subheader('Where the variance sits')
-    st.html(heatmap_html(current_pack, None if country == 'All countries' else country))
+    with st.container(border=True, key='card_1'):
+        section('🗺️', 'Where the variance sits', 'Each cell is one cost centre × account. Outlined cells need an explanation.')
+        st.html(heatmap_html(current_pack, None if country == 'All countries' else country))
 
-st.subheader('Variance detail')
-views = rollup_views(grain, current_pack['lines'])
-view = st.radio('View by', ['Lines'] + [label for _, label, _ in views], horizontal=True) if views else 'Lines'
-has_owner = any(r.get('owner') for r in result)
-if view == 'Lines':
-    display = [{'Country': r['country'], **{dim_label(d): r[d] for d in grain}, 'Account': r['account'],
-                **({'Owner': r.get('owner', '')} if has_owner else {}),
-                'Actual INR': float(r['actual']), f'{baseline.title()} INR': float(r[baseline]),
-                'Variance INR': float(r['variance']),
-                'Variance %': f"{r['pct']:.1f}%" if r['pct'] is not None else 'N/A', 'Outcome': r['direction'],
-                'Material': ('Yes (account total)' if r['scope'] == 'Account total' else 'Yes') if r['material'] else 'No'}
-               for r in result]
-else:
-    name = next(v for v, label, _ in views if label == view)
-    country_scoped = name in ('account', CC)
-    display = [{view: e['label'], 'Actual INR': float(e['actual']), f'{baseline.title()} INR': float(e['baseline']),
-                'Net variance INR': float(e['net']), 'Gross movement INR': float(e['gross']),
-                'Hidden by offsets INR': float(e['hidden']), 'Lines to explain': e['to_explain'],
-                'Explained INR': float(e['explained']), 'Unexplained INR': float(e['unexplained']),
-                'Flags': ', '.join(('⇅ ' if f.startswith('Offset') else 'Σ ') + f for f in e['flags'])}
-               for e in current_pack['rollups'][name]
-               if not country_scoped or country == 'All countries' or e['label'].startswith(country + ' | ')]
-    st.caption('Gross movement adds up the size of every line, so it shows what offsetting lines hide inside the net figure.'
-               + ('' if country_scoped else ' This view covers all countries.'))
-st.dataframe(display, width='stretch', hide_index=True)
+with st.container(border=True, key='card_2'):
+    section('📋', 'Variance detail')
+    views = rollup_views(grain, current_pack['lines'])
+    view = st.radio('View by', ['Lines'] + [label for _, label, _ in views], horizontal=True) if views else 'Lines'
+    has_owner = any(r.get('owner') for r in result)
+    if view == 'Lines':
+        display = [{'Country': r['country'], **{dim_label(d): r[d] for d in grain}, 'Account': r['account'],
+                    **({'Owner': r.get('owner', '')} if has_owner else {}),
+                    'Actual INR': float(r['actual']), f'{baseline.title()} INR': float(r[baseline]),
+                    'Variance INR': float(r['variance']),
+                    'Variance %': f"{r['pct']:.1f}%" if r['pct'] is not None else 'N/A', 'Outcome': r['direction'],
+                    'Material': ('Yes (account total)' if r['scope'] == 'Account total' else 'Yes') if r['material'] else 'No'}
+                   for r in result]
+    else:
+        name = next(v for v, label, _ in views if label == view)
+        country_scoped = name in ('account', CC)
+        display = [{view: e['label'], 'Actual INR': float(e['actual']), f'{baseline.title()} INR': float(e['baseline']),
+                    'Net variance INR': float(e['net']), 'Gross movement INR': float(e['gross']),
+                    'Hidden by offsets INR': float(e['hidden']), 'Lines to explain': e['to_explain'],
+                    'Explained INR': float(e['explained']), 'Unexplained INR': float(e['unexplained']),
+                    'Flags': ', '.join(('⇅ ' if f.startswith('Offset') else 'Σ ') + f for f in e['flags'])}
+                   for e in current_pack['rollups'][name]
+                   if not country_scoped or country == 'All countries' or e['label'].startswith(country + ' | ')]
+        st.caption('Gross movement adds up the size of every line, so it shows what offsetting lines hide inside the net figure.'
+                   + ('' if country_scoped else ' This view covers all countries.'))
+    frame = pd.DataFrame(display)
+    st.dataframe(colour_table(frame) if len(frame) else frame, width='stretch', hide_index=True,
+                 column_config=money_columns(frame))
 
-st.subheader('Business explanations')
+section('✍️', 'Business explanations')
 st.caption(f'Add one consolidated note per line ({level_name}) and comparison. Notes stay in this browser session only. '
            'Changing the input clears them. Download your explanations before leaving. Use fictional examples for this demo.')
 st.caption('A confirmed note means you reviewed it; the app does not verify the source. '
@@ -198,7 +216,7 @@ if material:
             st.session_state.flash = 'Explanation saved. Review the updated draft below.'
             st.rerun()
 
-st.subheader('Draft commentary for review')
+section('🧾', 'Draft commentary for review')
 summary = (f"{selected[0]['month']} | {country} | Compared with {baseline}\n"
            f"Actual expense: INR {actual:,.2f}; {baseline}: INR {plan:,.2f}; "
            f"net variance: INR {total['variance']:+,.2f} ({total['direction'].lower()}).\n\n")
@@ -218,7 +236,7 @@ if st.session_state.business_notes:
 
 interviewer_section(current_pack, client)
 
-st.subheader('Review pack')
+section('🔒', 'Review pack')
 st.caption(f'Locking freezes the figures and saved explanations for all countries, compared with {baseline} and '
            f'analysed by {level_name}, into one fingerprinted pack. Exports and AI commentary use only the locked pack.')
 if st.button('Lock review pack'):

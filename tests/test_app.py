@@ -25,7 +25,7 @@ class AppTests(unittest.TestCase):
         app = self.new_app()
         self.assertEqual(self.metrics(app), {
             'Actual expense · INR': '12,380,000', 'Budget · INR': '12,000,000',
-            'Net variance · INR': '+380,000', 'Lines to explain': '13'})
+            'Net variance · INR': '+380,000', 'Lines to explain': '13', 'Explained (confirmed)': '0%'})
         self.assertEqual(len(app.dataframe[0].value), 23)
         self.assertIn('Synthetic demo data', app.info[0].value)
 
@@ -89,7 +89,7 @@ class AppTests(unittest.TestCase):
         next(x for x in app.multiselect if x.label == 'Analyse by').unselect('cost_center').run()
         self.assertEqual(self.metrics(app), {
             'Actual expense · INR': '12,380,000', 'Budget · INR': '12,000,000',
-            'Net variance · INR': '+380,000', 'Lines to explain': '9'})
+            'Net variance · INR': '+380,000', 'Lines to explain': '9', 'Explained (confirmed)': '0%'})
         self.assertEqual(len(app.dataframe[0].value), 14)
         self.assertFalse(any(x.label == 'Line minimum variance (INR)' for x in app.number_input))
 
