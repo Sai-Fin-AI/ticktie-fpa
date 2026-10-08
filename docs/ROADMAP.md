@@ -57,10 +57,11 @@ Status: ✅ done · 🔜 next · ⬜ planned
 - ✅ Tests pass on Windows, Python 3.13 (8 Oct 2026)
 
 ### Phase 1: Publish-ready repo (≈1 day)
-- 🔜 Add `LICENSE` (MIT), GitHub Actions CI running the test suite on every push
-- 🔜 Tighten README top section: one-paragraph pitch, screenshot/GIF, "Try it" link, architecture diagram; move long walkthroughs to `docs/`
+- ✅ Add `LICENSE` (MIT), GitHub Actions CI running the test suite on every push (Ubuntu + Windows, Python 3.12/3.13)
+- ✅ Tighten README: pitch, badges, Mermaid architecture diagram; walkthroughs moved to `docs/WALKTHROUGH.md`
+- ✅ Lock dependencies (`requirements.txt` with exact versions)
+- 🔜 Add a screenshot (`docs/screenshot.png`) to the README
 - 🔜 Repo description, topics (`fpa`, `variance-analysis`, `streamlit`, `finance-automation`, `llm`), pin to GitHub profile
-- ⬜ Lock dependencies (`requirements.txt` with exact versions)
 
 ### Phase 2: Structured review pack (≈2–3 days, no AI yet)
 - ⬜ `pack.py`: one schema (dataclasses or pydantic) holding period, basis, thresholds, totals, rows, notes, explained/unexplained amounts
