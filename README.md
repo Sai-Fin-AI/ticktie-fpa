@@ -88,6 +88,8 @@ GitHub stores and displays the project source. Publishing a repository alone doe
 
 ## Learning roadmap
 
+The detailed plan, covering the AI commentary agent, the CFO deck agent, tools and backlog, is in [docs/ROADMAP.md](docs/ROADMAP.md).
+
 1. Run the demo and validate the finance outcomes.
 2. Refine the input format, finance rules and commentary with user feedback.
 3. Add explicitly supplied driver evidence and human-reviewed AI commentary.
