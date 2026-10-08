@@ -73,11 +73,16 @@ Status: ✅ done · 🔜 next · ⬜ planned
 - ⬜ Word export (deferred; Markdown converts cleanly if needed)
 
 ### Phase 3: Commentary agent (≈3–4 days)
-- ⬜ `agents/commentary.py` using the Claude API with structured (JSON-schema) output
-- ⬜ **Follow-up questions:** for each material line, the agent flags vague reasons ("higher costs"), unexplained gaps and missing timing, then asks the reviewer a specific question. This is the "ask me for reasons" loop.
-- ⬜ **Compilation:** executive summary, per-line commentary, open items, risks and actions, all in a fixed JSON schema
-- ⬜ Guardrails: prompt forbids causes not in notes; `validator.py` checks every number and every account mentioned against the pack; failures are shown, not hidden
-- ⬜ Demo mode: recorded responses for the sample data so the hosted app works without an API key
+**Decision (8 Oct 2026): free, local AI.** The agent runs on a local open-weight model through [Ollama](https://ollama.com), so there are no API costs and no data leaves the machine. Provider code sits behind a small interface (`llm.py`), so a hosted API could be added later without touching the agents. The hosted demo uses recorded responses from the local model, clearly labelled.
+**Status (8 Oct 2026): built.** `llm.py` (Ollama, Groq, Gemini, OpenRouter and demo mode through one OpenAI-style connection), `agents/interviewer.py`, `agents/writer.py`, `checker.py`, demo recordings from `qwen3:8b` on an RTX 4060, 12 new tests (40 total). The items below are kept for the record; open items are marked ⬜.
+- ✅ `llm.py`: provider interface with an Ollama backend (local HTTP API, JSON-schema structured output) and a demo backend (recorded responses)
+- ✅ `agents/writer.py` requesting structured (JSON-schema) output
+- ✅ **Follow-up questions:** for each material line, the agent flags vague reasons ("higher costs"), unexplained gaps and missing timing, then asks the reviewer a specific question. This is the "ask me for reasons" loop.
+- ✅ **Compilation:** executive summary and per-line commentary from the AI; open items and actions assembled by code from the pack
+- ✅ Guardrails: `checker.py` checks every figure, direction words, review-status wording, hidden unexplained gaps and internal codes; one retry with the problems listed, then download is blocked
+- ✅ Demo mode: recorded responses for the sample data so the hosted app works without an API key
+- ⬜ Daily usage cap when the app owner's free key is used on the hosted demo (Phase 5)
+- ⬜ Critic agent: an AI second reviewer for loose paraphrasing that the rule-based checker can't judge
 - ⬜ Eval set: 10–20 golden cases (vague reason, conflicting notes, zero budget, favorable variance) scored for hallucinated numbers/causes. Publish the scores in `docs/EVALUATION.md`.
 
 ### Phase 4: CFO deck agent (≈4–5 days)
@@ -95,7 +100,7 @@ Status: ✅ done · 🔜 next · ⬜ planned
 - ⬜ Same number validator applied to slide text; reviewer previews and approves before download
 
 ### Phase 5: Host & showcase (≈1–2 days)
-- ⬜ Deploy to Streamlit Community Cloud from the GitHub repo; API key in Streamlit secrets; daily usage cap
+- ⬜ Deploy to Streamlit Community Cloud from the GitHub repo in demo mode (recorded local-model responses; Ollama can't run there)
 - ⬜ 60–90 second demo video/GIF: upload → explain → follow-up question → download deck
 - ⬜ Case-study write-up (`docs/CASE_STUDY.md`): problem, design choices, controls, eval results, what you'd do next
 - ⬜ Resume bullets + LinkedIn post (claim only what is built and measured)
@@ -111,7 +116,7 @@ Status: ✅ done · 🔜 next · ⬜ planned
 | Editor / AI pair | VS Code, Claude Code | ✅ |
 | Data handling | `decimal` (stdlib); pandas optional for Excel/charts | ✅ pandas present |
 | Schemas | pydantic (or stdlib dataclasses) | ⬜ |
-| AI model | Anthropic Claude API (`anthropic` Python SDK) + API key from console.anthropic.com | ⬜ |
+| AI model | Ollama (local, free) with an ~8B open-weight model on the RTX 4060 (8 GB VRAM); called over its local HTTP API with `requests` | ✅ Ollama 0.34 installed; model to pull |
 | Excel export | openpyxl | ⬜ |
 | Word export (optional) | python-docx | ⬜ |
 | Slides | python-pptx | ⬜ |

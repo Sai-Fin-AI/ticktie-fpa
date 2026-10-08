@@ -5,11 +5,12 @@ import streamlit as st
 from finance import load_csv, sample_csv, analyze, compare
 from evidence import STATUSES, TIMINGS, note_key, make_note, evidence_commentary
 from pack import build_pack, lock_pack, pack_json, pack_excel, pack_markdown, export_notes, import_notes
+from ai_panel import ai_settings, demo_notes_button, interviewer_section, reset_note_widgets, writer_section
 
 st.set_page_config(page_title='FP&A Variance Assistant', page_icon='📊', layout='wide')
 st.title('FP&A Variance Assistant')
-st.caption('Project 1 · Expense analysis · INR reporting currency · Version 0.3')
-st.caption('Commentary uses fixed rules; AI is a later phase.')
+st.caption('Project 1 · Expense analysis · INR reporting currency · Version 0.4')
+st.caption('Figures come from fixed rules. AI drafts wording only, and every AI figure is checked against the locked pack.')
 
 with st.sidebar:
     st.header('Analysis settings')
@@ -21,6 +22,7 @@ with st.sidebar:
     st.download_button('Download sample input', sample_csv(), 'sample_expenses.csv', 'text/csv')
     notes_upload = st.file_uploader('Restore saved explanations (JSON)', type=['json'],
                                     help='A file from "Download explanations". Notes are re-checked against the current data.')
+client = ai_settings()
 
 try:
     raw = upload.getvalue() if upload is not None else sample_csv().encode()
@@ -32,6 +34,8 @@ try:
         st.session_state.evidence_source = fingerprint
         st.session_state.pop('locked_pack', None)
         st.session_state.pop('notes_import', None)
+        st.session_state.pop('interview', None)
+        st.session_state.pop('ai_commentary', None)
         for key in list(st.session_state):
             if key.startswith('evidence_widget_'):
                 del st.session_state[key]
@@ -50,10 +54,7 @@ if notes_upload is not None:
         try:
             restored, skipped = import_notes(notes_upload.getvalue().decode('utf-8-sig'), rows)
             st.session_state.business_notes.update(restored)
-            # Drop cached form values so the restored text is shown.
-            for key in list(st.session_state):
-                if key.startswith('evidence_widget_') and not key.startswith('evidence_widget_account_'):
-                    del st.session_state[key]
+            reset_note_widgets()
             st.success(f'Restored {len(restored)} explanation(s).' +
                        (f' {skipped} skipped because they do not match the current figures.' if skipped else ''))
         except (ValueError, UnicodeError) as error:
@@ -91,6 +92,7 @@ st.caption('Add one consolidated note per account and comparison. Notes stay in 
            'Changing the input clears them. Download commentary before leaving. Use fictional examples for this demo.')
 st.caption('A confirmed note means you reviewed it; the app does not verify the source. '
            'For conflicting accounts, describe both explanations and select Conflicting explanations.')
+demo_notes_button(rows)
 if material:
     options = {note_key(r, baseline): r for r in material}
     chosen = st.selectbox('Account to explain', list(options),
@@ -142,10 +144,12 @@ if st.session_state.business_notes:
                        f"explanations_{selected[0]['month']}.json", 'application/json',
                        help='Back up your notes. Restore them later from the sidebar.')
 
+current_pack = build_pack(rows, baseline, amount, pct, st.session_state.business_notes)
+interviewer_section(current_pack, client)
+
 st.subheader('Review pack')
 st.caption(f'Locking freezes the figures and saved explanations for all countries, compared with {baseline}, '
-           'into one fingerprinted pack. Exports, and later AI commentary and slides, use only the locked pack.')
-current_pack = build_pack(rows, baseline, amount, pct, st.session_state.business_notes)
+           'into one fingerprinted pack. Exports and AI commentary use only the locked pack.')
 if st.button('Lock review pack'):
     st.session_state.locked_pack = lock_pack(current_pack)
 locked = st.session_state.get('locked_pack')
@@ -162,6 +166,7 @@ elif locked:
                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     d2.download_button('Commentary (Markdown)', pack_markdown(locked), stem + '.md', 'text/markdown')
     d3.download_button('Pack data (JSON)', pack_json(locked), stem + '.json', 'application/json')
+    writer_section(locked, client)
 else:
     st.write('Not locked yet. Save explanations first, then lock the pack.')
 
@@ -170,7 +175,8 @@ with st.expander('Finance rules and limitations'):
              'Zero baselines have no percentage variance. Missing, duplicate, invalid or negative amounts '
              'stop the analysis. Values are INR with at most two decimal places. '
              'This version accepts one month and expense accounts only; revenue, credits, '
-             'FX conversion, automatic driver attribution and AI generation are not included.')
+             'FX conversion and automatic driver attribution are not included. '
+             'AI never calculates or infers causes; it rewords reviewer explanations and its figures are checked.')
     st.write('The validation cannot detect an entirely omitted account without an expected-account roster. '
              'A CSV must contain the same seven columns as the sample input. '
              'All sample records are fictional. Commentary must be reviewed before use.')

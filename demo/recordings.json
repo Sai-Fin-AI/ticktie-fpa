@@ -1,0 +1,91 @@
+{
+  "model": "Ollama (this computer) · qwen3:8b",
+  "recorded_on": "2026-10-08",
+  "responses": {
+    "interview:03b86d411afeb8db529921e9f5d452a325e421baa286201f56258519fc9c0072": {
+      "reviews": [
+        {
+          "line_id": "L01",
+          "quality": "specific",
+          "question": ""
+        },
+        {
+          "line_id": "L02",
+          "quality": "specific",
+          "question": ""
+        },
+        {
+          "line_id": "L03",
+          "quality": "vague",
+          "question": "What caused the increase in employee costs?"
+        },
+        {
+          "line_id": "L04",
+          "quality": "specific",
+          "question": ""
+        },
+        {
+          "line_id": "L06",
+          "quality": "specific",
+          "question": ""
+        }
+      ]
+    },
+    "commentary:03b86d411afeb8db529921e9f5d452a325e421baa286201f56258519fc9c0072": {
+      "executive_summary": [
+        "Total expenses were INR 380,000.00 above budget, with INR 375,000.00 explained and INR 495,000.00 unexplained.",
+        "The largest explained driver was urgent air freight in India for distribution, contributing INR 150,000.00, while India's employee costs had an unexplained INR 100,000.00."
+      ],
+      "lines": [
+        {
+          "line_id": "L01",
+          "commentary": "India's distribution costs were INR 200,000.00 above budget, with INR 150,000.00 confirmed due to urgent air freight for a festive-season launch, and INR 50,000.00 unexplained."
+        },
+        {
+          "line_id": "L02",
+          "commentary": "Australia's employee costs were INR 150,000.00 below budget due to vacant roles in the Sydney sales team, with the full amount explained."
+        },
+        {
+          "line_id": "L03",
+          "commentary": "India's employee costs were INR 100,000.00 above budget, with no explanation confirmed and the full amount remaining unexplained."
+        },
+        {
+          "line_id": "L04",
+          "commentary": "Australia's distribution costs were INR 100,000.00 above budget, with conflicting explanations from logistics and commercial teams, and the full amount unexplained."
+        },
+        {
+          "line_id": "L06",
+          "commentary": "India's consulting costs were INR 75,000.00 above budget due to unbudgeted tax advisory support for the GST audit, with the full amount explained."
+        }
+      ]
+    },
+    "commentary-retry:03b86d411afeb8db529921e9f5d452a325e421baa286201f56258519fc9c0072": {
+      "executive_summary": [
+        "Total expenses were INR 380,000.00 above budget, with INR 375,000.00 explained and INR 495,000.00 unexplained.",
+        "The largest explained driver was urgent air freight in India for Distribution, contributing INR 150,000.00, while India's Employee costs had an unexplained INR 100,000.00."
+      ],
+      "lines": [
+        {
+          "line_id": "L01",
+          "commentary": "India's Distribution expenses were INR 200,000.00 above budget, with INR 150,000.00 explained as urgent air freight due to a supplier delay, and INR 50,000.00 unexplained."
+        },
+        {
+          "line_id": "L02",
+          "commentary": "Australia's Employee costs were INR 150,000.00 below budget, fully explained by vacant sales roles, with no unexplained amount."
+        },
+        {
+          "line_id": "L03",
+          "commentary": "India's Employee costs were INR 100,000.00 above budget, with no explanation confirmed, and the full amount remains unexplained."
+        },
+        {
+          "line_id": "L04",
+          "commentary": "Australia's Distribution expenses were INR 100,000.00 above budget, with conflicting explanations for the variance, and the full amount remains unexplained."
+        },
+        {
+          "line_id": "L06",
+          "commentary": "India's Consulting expenses were INR 75,000.00 above budget, fully explained as unbudgeted tax advisory support for the GST audit."
+        }
+      ]
+    }
+  }
+}

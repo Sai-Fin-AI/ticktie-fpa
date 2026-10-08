@@ -59,7 +59,8 @@ def build_pack(rows, baseline, amount_threshold, pct_threshold, notes):
     content = _plain({
         'schema_version': SCHEMA_VERSION, 'period': rows[0]['month'], 'currency': rows[0]['currency'],
         'basis': baseline, 'scope': 'All countries',
-        'thresholds': {'amount': amount_threshold, 'pct': pct_threshold},
+        # Fixed precision so 5, 5.0 and 5.00 give the same fingerprint.
+        'thresholds': {'amount': amount_threshold.quantize(Decimal('.01')), 'pct': pct_threshold.quantize(Decimal('.01'))},
         'totals': {'actual': actual, 'baseline': plan, 'variance': total['variance'],
                    'pct': total['pct'], 'direction': total['direction']},
         'summary': {'rows': len(lines), 'material': sum(l['material'] for l in lines),
@@ -141,19 +142,21 @@ def pack_excel(pack):
               ('', 'No explanation supplied', '', None, '', '', '')) + (_money(l['explained']), _money(l['unexplained']))
            for l in material], money_cols='CGKL')
     sheet('Open items', ['Country', 'Account', 'Variance', 'Unexplained', 'Reason open'],
-          [(l['country'], l['account'], _money(l['variance']), _money(l['unexplained']), _open_reason(l))
-           for l in material if _open_reason(l)], money_cols='CD')
+          [(l['country'], l['account'], _money(l['variance']), _money(l['unexplained']), open_reason(l))
+           for l in material if open_reason(l)], money_cols='CD')
     output = io.BytesIO()
     book.save(output)
     return output.getvalue()
 
 
-def _open_reason(line):
+def open_reason(line):
     note = line['note']
     if note is None:
         return 'No explanation supplied'
+    if note['status'] == 'Unconfirmed':
+        return 'Explanation not yet confirmed'
     if note['status'] != 'Confirmed by reviewer':
-        return f"Explanation {note['status'].lower()}"
+        return 'Explanations conflict'
     if Decimal(line['unexplained']) > 0:
         return 'Explanation covers part of the variance'
     return ''
@@ -170,9 +173,9 @@ def pack_markdown(pack):
            '', f"{s['material']} material movements; {s['open_items']} open items.", '', '## Material movements', '']
     material = [l for l in pack['lines'] if l['material']]
     out += [l['commentary'].replace('\n', '  \n') + '\n' for l in material] or ['No account movements meet the thresholds.\n']
-    opens = [l for l in material if _open_reason(l)]
+    opens = [l for l in material if open_reason(l)]
     if opens:
-        out += ['## Open items', ''] + [f"- {l['country']} | {l['account']}: INR {Decimal(l['unexplained']):,.2f} unexplained. {_open_reason(l)}."
+        out += ['## Open items', ''] + [f"- {l['country']} | {l['account']}: INR {Decimal(l['unexplained']):,.2f} unexplained. {open_reason(l)}."
                                         for l in opens] + ['']
     out += ['---', f"Pack fingerprint: `{pack['content_hash']}`. Figures are engine-calculated; explanations are reviewer-supplied."]
     return '\n'.join(out) + '\n'

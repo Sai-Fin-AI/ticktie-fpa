@@ -1,0 +1,90 @@
+{
+  "schema_version": "1",
+  "notes": [
+    {
+      "key": [
+        "2026-08",
+        "India",
+        "Distribution",
+        "INR",
+        "1200000",
+        "1000000",
+        "budget"
+      ],
+      "reason": "Urgent air freight for festive-season launch stock after a supplier delay.",
+      "reference": "Fictional freight invoices FR-0812",
+      "amount": "150000",
+      "status": "Confirmed by reviewer",
+      "timing": "One-off",
+      "action": "Agree a lead-time buffer with the supplier."
+    },
+    {
+      "key": [
+        "2026-08",
+        "Australia",
+        "Employee costs",
+        "INR",
+        "1850000",
+        "2000000",
+        "budget"
+      ],
+      "reason": "Two open roles in the Sydney sales team were vacant for all of August.",
+      "reference": "Fictional HR headcount report, August 2026",
+      "amount": "150000",
+      "status": "Confirmed by reviewer",
+      "timing": "Timing difference",
+      "action": "Confirm start dates; the saving reverses once roles are filled."
+    },
+    {
+      "key": [
+        "2026-08",
+        "India",
+        "Employee costs",
+        "INR",
+        "2100000",
+        "2000000",
+        "budget"
+      ],
+      "reason": "Higher costs.",
+      "reference": "Email from HR",
+      "amount": "100000",
+      "status": "Unconfirmed",
+      "timing": "Unknown",
+      "action": ""
+    },
+    {
+      "key": [
+        "2026-08",
+        "Australia",
+        "Distribution",
+        "INR",
+        "1100000",
+        "1000000",
+        "budget"
+      ],
+      "reason": "Logistics says carrier rates rose; commercial says volume grew with new stores.",
+      "reference": "Fictional carrier notice and store opening plan",
+      "amount": "100000",
+      "status": "Conflicting explanations",
+      "timing": "Recurring",
+      "action": ""
+    },
+    {
+      "key": [
+        "2026-08",
+        "India",
+        "Consulting",
+        "INR",
+        "75000",
+        "0",
+        "budget"
+      ],
+      "reason": "Unbudgeted tax advisory support for the GST audit.",
+      "reference": "Fictional engagement letter EL-22",
+      "amount": "75000",
+      "status": "Confirmed by reviewer",
+      "timing": "One-off",
+      "action": "Add audit support to next year's budget."
+    }
+  ]
+}
