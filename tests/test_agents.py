@@ -212,7 +212,30 @@ class AIAppTests(unittest.TestCase):
         button('Draft CFO commentary').click().run()
         self.assertFalse(app.exception)
         self.assertTrue(any('Every figure ties to the locked pack' in x.value for x in app.success))
-        self.assertTrue(any('# CFO commentary: 2026-08' in x.value for x in app.markdown))
+        shown = app.session_state['ai_commentary']
+        self.assertIn('✔ Tick-and-tie passed', shown['html'])
+        self.assertIn('# CFO commentary: 2026-08', shown['markdown'])
+
+
+class ReportTests(unittest.TestCase):
+    def setUp(self):
+        self.pack = lock_pack(demo_pack())
+
+    def test_indicators_tiles_and_sections(self):
+        page = write_commentary(self.pack, FakeClient(good_reply(self.pack)))['html']
+        for expected in ('▲ Unfavorable', '▼ Favorable', '✅ Confirmed', '🟡 Unconfirmed', '🔴 Conflicting',
+                         '⚪ Explanation pending', '① One-off', 'Explained INR 150,000.00 (75%)', 'Fully explained',
+                         'Not counted until resolved', 'Open items (7)', '☐', '✔ Tick-and-tie passed', 'INR 12,380,000'):
+            self.assertIn(expected, page)
+        self.assertEqual(page.count('border-left:5px solid'), 9)
+
+    def test_failed_draft_and_escaping(self):
+        bad = good_reply(self.pack)
+        bad['executive_summary'][0] = '<script>alert(1)</script> INR 999.00'
+        page = write_commentary(self.pack, FakeClient(bad, bad))['html']
+        self.assertIn('✖ FAILED NUMBER CHECK', page)
+        self.assertNotIn('<script>', page)
+        self.assertIn('&lt;script&gt;', page)
 
 
 if __name__ == '__main__':

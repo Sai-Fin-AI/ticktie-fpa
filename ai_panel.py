@@ -8,6 +8,7 @@ from agents.interviewer import interview
 from agents.writer import write_commentary
 from llm import DEMO, PROVIDERS, AIError, Client
 from pack import import_notes
+from report_html import html_document
 
 DEMO_NOTES = Path(__file__).resolve().parent / 'demo' / 'explanations.json'
 SECRET_NAMES = {'Groq (free tier)': 'GROQ_API_KEY', 'Google Gemini (free tier)': 'GEMINI_API_KEY', 'OpenRouter': 'OPENROUTER_API_KEY'}
@@ -105,12 +106,11 @@ def writer_section(locked, client):
     else:
         retry = ' after one correction' if result['attempts'] > 1 else ''
         st.success(f"Every figure ties to the locked pack{retry}. Drafted by {result['model']}.")
-    with st.container(border=True):
-        # Smaller headings on screen; the download keeps document-sized ones.
-        st.markdown(result['markdown'].replace('\n## ', '\n##### ').replace('# ', '#### ', 1))
+    st.html(result['html'])
     if not result['issues']:
         stem = f"cfo_commentary_{locked['period']}_{locked['basis']}"
-        c1, c2 = st.columns(2)
-        c1.download_button('CFO commentary (Markdown)', result['markdown'], stem + '.md', 'text/markdown')
-        c2.download_button('CFO commentary (JSON)', json.dumps(result['reply'], indent=2, ensure_ascii=False),
+        c1, c2, c3 = st.columns(3)
+        c1.download_button('CFO commentary (HTML, print to PDF)', html_document(result['html'], stem), stem + '.html', 'text/html')
+        c2.download_button('CFO commentary (Markdown)', result['markdown'], stem + '.md', 'text/markdown')
+        c3.download_button('CFO commentary (JSON)', json.dumps(result['reply'], indent=2, ensure_ascii=False),
                            stem + '.json', 'application/json')

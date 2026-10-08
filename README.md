@@ -28,6 +28,7 @@ During monthly reporting, FP&A teams reconcile actuals against budget or the lat
 - **Explanations backup and restore.** Restored notes are re-checked against the current figures; stale ones are skipped.
 - **AI interviewer.** Before locking, it lists follow-up questions for each material line. Fixed rules catch missing, unconfirmed and partial explanations and unknown timing; the AI flags vague wording such as "higher costs" and suggests a sharper question.
 - **AI CFO commentary.** Drafted from the locked pack. The AI writes wording only for explained lines; unexplained lines, open items and actions come straight from the pack.
+- **CFO-ready layout.** Headline tiles, colour-coded line cards (▲ unfavorable / ▼ favorable), review-status and timing chips, and an explained-vs-unexplained bar per line. Download it as HTML (prints neatly to PDF), Markdown or JSON. Every colour is paired with an arrow, icon or word, so it reads in black-and-white print too.
 - **Tick-and-tie checker.** Plain code with no AI. Every figure in AI text must exist in the pack (lakh, crore and million are understood). It also catches favourable/unfavourable mix-ups, unconfirmed or conflicting notes presented as fact, partial explanations that hide the unexplained gap, and internal codes. A failing draft gets one retry with the problems listed; if it fails again, download is blocked.
 
 ## AI modes (all free)
@@ -65,9 +66,10 @@ flowchart LR
 | `llm.py` | One connection for every AI provider, plus demo mode |
 | `agents/` | `interviewer.py` (follow-up questions) and `writer.py` (CFO commentary) |
 | `checker.py` | Tick-and-tie of AI text against the pack (no AI) |
+| `report_html.py` | Styled CFO commentary page (tiles, cards, coverage bars), HTML-escaped |
 | `demo/` | Fictional demo explanations and recorded AI answers; rebuild with `scripts/record_demo.py` |
 | `app.py`, `ai_panel.py` | Streamlit interface |
-| `tests/` | 40 tests: engine, evidence, review pack, agents, checker, provider connection and UI. No AI or network needed. |
+| `tests/` | 42 tests: engine, evidence, review pack, agents, checker, provider connection and UI. No AI or network needed. |
 
 ## Run it locally
 

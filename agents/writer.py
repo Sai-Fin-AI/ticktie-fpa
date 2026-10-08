@@ -10,6 +10,10 @@ from agents import inr, line_facts, material_lines
 from checker import allowed_figures, check_line_text, internal_codes, unsupported_figures
 from llm import AIError
 from pack import load_pack, pack_json, open_reason
+from report_html import commentary_html
+
+DOTS = {'Unfavorable': '🔴 ▲', 'Favorable': '🟢 ▼', 'On plan': '⚪ ●'}
+STATUS_TAGS = {'Confirmed by reviewer': '✅ Confirmed', 'Unconfirmed': '🟡 Unconfirmed', 'Conflicting explanations': '🔴 Conflicting'}
 
 SYSTEM = """You are an FP&A analyst drafting month-end expense variance commentary for a CFO review.
 Rules, in order of importance:
@@ -81,7 +85,8 @@ def write_commentary(pack, client):
         reply = client.complete('commentary-retry', pack['content_hash'], SYSTEM, retry, SCHEMA)
         issues, attempts = check_draft(pack, reply), 2
     return {'reply': reply, 'issues': issues, 'attempts': attempts, 'model': client.label,
-            'markdown': to_markdown(pack, reply, issues, client.label)}
+            'markdown': to_markdown(pack, reply, issues, client.label),
+            'html': commentary_html(pack, reply, issues, client.label)}
 
 
 def to_markdown(pack, reply, issues, model):
@@ -92,16 +97,18 @@ def to_markdown(pack, reply, issues, model):
         out += ['> **FAILED NUMBER CHECK. Do not use.** ' + '; '.join(issues), '']
     out += ['## Executive summary', ''] + [f'- {b}' for b in reply['executive_summary']] + ['', '## Material movements', '']
     for line_id, line in lines:
-        head = f"**{line['country']} | {line['account']}** ({inr(line['variance'])} {line['direction'].lower()})"
+        status = STATUS_TAGS[line['note']['status']] if line['note'] else '⚪ Pending'
+        head = (f"{DOTS[line['direction']]} **{line['country']} | {line['account']}** "
+                f"({inr(line['variance'])} {line['direction'].lower()}) · {status}")
         body = written.get(line_id) if line['note'] else 'Explanation pending from the account owner. No cause is assumed.'
         out.append(f'{head}: {body or "Commentary missing."}\n')
     opens = [(l, open_reason(l)) for _, l in lines if open_reason(l)]
     if opens:
-        out += ['## Open items', ''] + [f"- {l['country']} | {l['account']}: {inr(l['unexplained'])} unexplained. {why}."
+        out += ['## Open items', ''] + [f"- 🟠 {l['country']} | {l['account']}: {inr(l['unexplained'])} unexplained. {why}."
                                         for l, why in opens] + ['']
     actions = [(l, l['note']['action']) for _, l in lines if l['note'] and l['note']['action']]
     if actions:
-        out += ['## Actions proposed by reviewers', ''] + [f"- {l['country']} | {l['account']}: {a}" for l, a in actions] + ['']
+        out += ['## Actions proposed by reviewers', ''] + [f"- [ ] {l['country']} | {l['account']}: {a}" for l, a in actions] + ['']
     status = 'passed' if not issues else 'FAILED'
     out += ['---', f"Drafted by AI ({model}) from locked pack `{pack['content_hash'][:12]}`. "
                    f"Figures tick-and-tied to the pack: {status}. Explanations are reviewer-supplied. Review before use."]
