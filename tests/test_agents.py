@@ -234,7 +234,7 @@ class AIAppTests(unittest.TestCase):
         self.assertTrue(any('vague wording' in x.value for x in app.markdown))
         self.assertTrue(any(x.label.startswith('👤 Priya Nair') for x in app.expander))
         button('Lock review pack').click().run()
-        button('Draft CFO commentary').click().run()
+        button('Draft CFO commentary and deck').click().run()
         self.assertFalse(app.exception)
         self.assertTrue(any('Every figure ties to the locked pack' in x.value for x in app.success))
         shown = app.session_state['ai_commentary']

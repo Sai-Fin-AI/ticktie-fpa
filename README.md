@@ -6,7 +6,7 @@
 
 **Month-end variance analysis that never invents a cause.** Upload actuals, budget and forecast. The tool validates the data, calculates variances in exact decimal arithmetic and flags material movements. It then asks the reviewer to explain each one. Figures come only from the engine; explanations come only from people and are labelled as such.
 
-Version 0.5: cost centres, owners and any extra dimension, plus an AI interviewer and AI CFO commentary, with every AI figure tick-and-tied to a locked review pack. Runs free, on a local model or free-tier services. A CFO slide-deck generator is next (see the [roadmap](docs/ROADMAP.md)).
+Version 0.5: cost centres, owners and any extra dimension, plus an AI interviewer and AI CFO commentary, with every AI figure tick-and-tied to a locked review pack. Runs free, on a local model or free-tier services. It also builds a CFO PowerPoint deck in parallel with the commentary (see the [roadmap](docs/ROADMAP.md)).
 
 <!-- Add a screenshot: save it as docs/screenshot.png and uncomment the line below. -->
 <!-- ![App screenshot](docs/screenshot.png) -->
@@ -34,7 +34,8 @@ During monthly reporting, FP&A teams reconcile actuals against budget or the lat
 - **AI interviewer.** Before locking, it lists follow-up questions for each material line, grouped **by owner**, with a downloadable query list (Markdown or CSV) for the month-end chase. Fixed rules catch missing, unconfirmed and partial explanations, spread-variance shares and unknown timing; the AI flags vague wording such as "higher costs" and suggests a sharper question.
 - **AI CFO commentary.** Drafted from the locked pack. The AI writes wording only for explained lines; unexplained lines, open items and actions come straight from the pack.
 - **CFO-ready layout.** Headline tiles, colour-coded line cards (▲ unfavorable / ▼ favorable), review-status and timing chips, and an explained-vs-unexplained bar per line. Download it as HTML (prints neatly to PDF), Markdown or JSON. Every colour is paired with an arrow, icon or word, so it reads in black-and-white print too.
-- **Tick-and-tie checker.** Plain code with no AI. Every figure in AI text must exist in the pack (lakh, crore and million are understood). It also catches favourable/unfavourable mix-ups, unconfirmed or conflicting notes presented as fact, partial explanations that hide the unexplained gap, and internal codes. A failing draft gets one retry with the problems listed; if it fails again, download is blocked.
+- **CFO deck (PowerPoint).** Built in parallel with the commentary from the same locked pack, in 16:9 with 10 slides: title, executive summary with KPI tiles, budget-to-actual **waterfall bridge**, largest movements, cost centre × account **heatmap**, what net figures hide (gross vs net), open items by owner, run-rate outlook by timing (one-off / recurring / timing difference) with reviewer actions, and an appendix. Code draws every chart, table and number; the AI writes only headlines and 3 summary bullets, and any that fail the checks are replaced by standard wording.
+- **Tick-and-tie checker.** Plain code with no AI. Every figure in AI text must exist in the pack (lakh, crore and million are understood). It also catches favourable/unfavourable mix-ups, unconfirmed or conflicting notes presented as fact, partial explanations that hide the unexplained gap, internal codes, and **figures attached to the wrong line**: an amount next to a country, cost centre, account or owner must belong to that entity, e.g. INR 340,000 is Distribution across all countries, not India Distribution. A failing draft gets one retry with the problems listed; if it fails again, download is blocked.
 
 ## AI modes (all free)
 
@@ -60,7 +61,8 @@ flowchart LR
     F --> K{Tick-and-tie<br/>checker.py}
     K -- passes --> O[CFO commentary download]
     K -- fails --> F
-    E -. planned .-> G[CFO deck agent]
+    E --> G[CFO deck agent<br/>agents/deck.py]
+    G --> K
 ```
 
 | File | Role |
@@ -154,8 +156,8 @@ Expense accounts only (no revenue or credits), one month per file, INR only. The
 3. ✅ AI interviewer and CFO commentary writer with tick-and-tie checker; free local and free-tier AI
 3b. ✅ Cost centres, owners, extra dimensions, roll-ups with gross vs net, spread variances, heatmap, owner query lists
 3c. ✅ Separate actuals / budget / forecast uploads (CSV or Excel) with column-mapping dropdowns and reconciliation
-4. 🔜 CFO deck agent (python-pptx), running in parallel with the commentary agent on the same locked pack
-5. Hosted demo
+4. ✅ CFO deck agent (python-pptx), running in parallel with the commentary agent on the same locked pack
+5. 🔜 Hosted demo
 
 Full plan, tools and backlog: [docs/ROADMAP.md](docs/ROADMAP.md).
 

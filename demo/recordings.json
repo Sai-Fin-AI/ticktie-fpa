@@ -27,12 +27,12 @@
         {
           "line_id": "L07",
           "quality": "vague",
-          "question": "Which carrier rates specifically increased, and what was the impact on volume?"
+          "question": "Which carrier rates specifically increased, and what was the impact of the volume growth on the variance?"
         },
         {
           "line_id": "L08",
           "quality": "vague",
-          "question": "What caused the higher costs in the India Sales cost centre?"
+          "question": "What specific factors contributed to the higher costs in the India Sales cost centre?"
         }
       ]
     },
@@ -40,67 +40,82 @@
       "executive_summary": [
         "Total expenses were INR 380,000.00 above budget, resulting in an unfavorable outcome.",
         "Confirmed explanations account for INR 495,000.00, with INR 515,000.00 remaining unexplained.",
-        "The largest offset was India | Distribution, where INR 200,000.00 unfavorable was offset by INR 80,000.00.",
-        "Unconfirmed and conflicting explanations remain for several lines, including India | Employee costs and Australia | Distribution."
+        "The largest offset was India | Distribution, where a net unfavorable movement of INR 200,000.00 was offset by INR 80,000.00 in hidden lines."
       ],
       "lines": [
         {
           "line_id": "L01",
-          "commentary": "India | Distribution had INR 240,000.00 above budget, with INR 180,000.00 confirmed due to urgent air freight for a festive-season launch."
+          "commentary": "India | Distribution had an unfavorable movement of INR 240,000.00 above budget, with INR 180,000.00 confirmed as urgent air freight for a festive-season launch due to a supplier delay."
         },
         {
           "line_id": "L02",
-          "commentary": "Australia | Employee costs were INR 150,000.00 below budget due to two vacant roles in the Sydney sales team."
+          "commentary": "Australia | Employee costs showed a favorable movement of INR 150,000.00 below budget, fully explained by two vacant roles in the Sydney sales team."
         },
         {
           "line_id": "L03",
-          "commentary": "Singapore | Employee costs were INR 90,000.00 below budget due to two warehouse supervisors moving to the Singapore Sales cost centre."
+          "commentary": "Singapore | Employee costs had a favorable movement of INR 90,000.00 below budget, explained by two warehouse supervisors moving to the Singapore Sales cost centre."
         },
         {
           "line_id": "L05",
-          "commentary": "India | Consulting had INR 75,000.00 above budget due to unbudgeted tax advisory support for the GST audit."
+          "commentary": "India | Consulting had an unfavorable movement of INR 75,000.00 above budget, fully explained by unbudgeted tax advisory support for the GST audit."
         },
         {
           "line_id": "L07",
-          "commentary": "Australia | Distribution had INR 70,000.00 above budget, with conflicting explanations from logistics and commercial teams."
+          "commentary": "Australia | Distribution had an unfavorable movement of INR 70,000.00 above budget, with conflicting explanations from logistics and commercial teams; the movement remains unexplained."
         },
         {
           "line_id": "L08",
-          "commentary": "India | Employee costs had INR 60,000.00 above budget, with no confirmed explanation and the movement unconfirmed."
+          "commentary": "India | Employee costs had an unfavorable movement of INR 60,000.00 above budget, with no confirmed explanation; the movement remains unexplained."
         }
       ]
     },
     "commentary-retry:3ca00d6c7dd9069911a23383d84df82ef8d9dd27f394ae18b1773c2385d429f4": {
       "executive_summary": [
         "Total expenses were INR 380,000.00 above budget, with INR 495,000.00 explained and INR 515,000.00 unexplained.",
-        "The largest explained driver was India | Distribution, which was INR 240,000.00 above budget due to urgent air freight for a festive-season launch.",
-        "The largest offset was Singapore | Employee costs, where a net INR 0.00 movement masked a gross INR 180,000.00 movement."
+        "The largest explained movement was India | Distribution, which was INR 240,000.00 above budget due to urgent air freight for a festive-season launch.",
+        "The largest offset was Singapore | Employee costs, where the net movement was INR 0.00 on plan, but gross movement was INR 180,000.00."
       ],
       "lines": [
         {
           "line_id": "L01",
-          "commentary": "India | Distribution was INR 240,000.00 above budget, with INR 180,000.00 confirmed as urgent air freight for a festive-season launch, and INR 60,000.00 remains unexplained."
+          "commentary": "India | Distribution was INR 240,000.00 above budget, with INR 180,000.00 explained as urgent air freight for a festive-season launch stock, and INR 60,000.00 remains unexplained."
         },
         {
           "line_id": "L02",
-          "commentary": "Australia | Employee costs were INR 150,000.00 below budget due to two vacant roles in the Sydney sales team, with the full amount explained."
+          "commentary": "Australia | Employee costs were INR 150,000.00 below budget due to two open roles in the Sydney sales team, with the full movement explained."
         },
         {
           "line_id": "L03",
-          "commentary": "Singapore | Employee costs were INR 90,000.00 below budget due to two warehouse supervisors moving to the Singapore Sales cost centre, with the full amount explained."
+          "commentary": "Singapore | Employee costs were INR 90,000.00 below budget due to two warehouse supervisors moving to the Singapore Sales cost centre, with the full movement explained."
         },
         {
           "line_id": "L05",
-          "commentary": "India | Consulting was INR 75,000.00 above budget due to unbudgeted tax advisory support for the GST audit, with the full amount explained."
+          "commentary": "India | Consulting was INR 75,000.00 above budget due to unbudgeted tax advisory support for the GST audit, with the full movement explained."
         },
         {
           "line_id": "L07",
-          "commentary": "Australia | Distribution was INR 70,000.00 above budget, with conflicting explanations from logistics and commercial teams; the full amount remains unexplained."
+          "commentary": "Australia | Distribution was INR 70,000.00 above budget, with conflicting explanations from logistics and commercial teams, and the full movement remains unexplained."
         },
         {
           "line_id": "L08",
-          "commentary": "India | Employee costs were INR 60,000.00 above budget, with no confirmed explanation; the full amount remains unexplained."
+          "commentary": "India | Employee costs were INR 60,000.00 above budget, with no confirmed explanation and the full movement remains unexplained."
         }
+      ]
+    },
+    "deck:3ca00d6c7dd9069911a23383d84df82ef8d9dd27f394ae18b1773c2385d429f4": {
+      "headlines": {
+        "summary": "Overall variance is INR 380,000 above budget (unfavorable).",
+        "bridge": "49% of variance is confirmed, with INR 495,000 explained.",
+        "top": "Distribution and Consulting are the largest unfavorable variances.",
+        "heatmap": "India and Singapore show the highest variance concentrations.",
+        "offsets": "India Distribution and Singapore Employee costs partially offset the variance.",
+        "owners": "Priya Nair holds INR 170,000 in open items.",
+        "outlook": "Timing differences and one-offs impact run-rate variance."
+      },
+      "summary": [
+        "Net variance of INR 380,000 above budget (unfavorable).",
+        "49% of variance is confirmed, with INR 495,000 explained.",
+        "India and Singapore are key regions with concentrated variances."
       ]
     }
   }

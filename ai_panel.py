@@ -4,6 +4,9 @@ from pathlib import Path
 
 import streamlit as st
 
+from concurrent.futures import ThreadPoolExecutor
+
+from agents.deck import make_deck
 from agents.interviewer import by_owner, interview, query_list_csv, query_list_markdown
 from agents.writer import write_commentary
 from llm import DEMO, PROVIDERS, AIError, Client
@@ -100,19 +103,33 @@ def interviewer_section(pack, client):
     c2.download_button('Query list by owner (CSV for Excel)', query_list_csv(result['findings']), stem + '.csv', 'text/csv')
 
 
-def writer_section(locked, client):
-    st.subheader('📊 AI CFO commentary')
-    st.caption('Drafts commentary from the locked pack only. Lines without explanations get fixed wording; '
-               'open items and actions come straight from the pack. Drafts that fail the tick-and-tie cannot be downloaded.')
-    if st.button('Draft CFO commentary'):
+def run_agents(locked, client):
+    """Commentary writer and deck builder read the same locked pack, so they run side by side."""
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        commentary = pool.submit(write_commentary, locked, client)
+        deck = pool.submit(make_deck, locked, client)
         try:
-            with st.spinner('Drafting and checking. A local model can take a minute or two.'):
-                result = write_commentary(locked, client)
-            st.session_state.ai_commentary = {'hash': locked['content_hash'], **result}
+            written = {'hash': locked['content_hash'], **commentary.result()}
         except (AIError, ValueError) as error:
-            st.error(str(error))
+            written = {'hash': locked['content_hash'], 'error': str(error)}
+        return written, {'hash': locked['content_hash'], **deck.result()}
+
+
+def writer_section(locked, client):
+    st.subheader('📊 CFO pack: commentary and deck')
+    st.caption('Two agents read the same locked pack in parallel. The writer drafts commentary; the deck agent draws every '
+               'chart and table from the pack and writes only the headlines. Both are tick-and-tied; failing commentary '
+               'cannot be downloaded, and failing headlines are replaced by standard wording.')
+    if st.button('Draft CFO commentary and deck'):
+        with st.spinner('Two agents at work. A local model can take a minute or two.'):
+            st.session_state.ai_commentary, st.session_state.ai_deck = run_agents(locked, client)
+    deck_section(locked)
     result = st.session_state.get('ai_commentary')
     if not result or result['hash'] != locked['content_hash']:
+        return
+    st.markdown('**CFO commentary**')
+    if 'error' in result:
+        st.error(result['error'])
         return
     if result['issues']:
         st.error('Failed the tick-and-tie after a retry, so download is blocked:\n' + '\n'.join(f'- {i}' for i in result['issues']))
@@ -127,3 +144,17 @@ def writer_section(locked, client):
         c2.download_button('CFO commentary (Markdown)', result['markdown'], stem + '.md', 'text/markdown')
         c3.download_button('CFO commentary (JSON)', json.dumps(result['reply'], indent=2, ensure_ascii=False),
                            stem + '.json', 'application/json')
+
+
+def deck_section(locked):
+    deck = st.session_state.get('ai_deck')
+    if not deck or deck['hash'] != locked['content_hash']:
+        return
+    with st.container(border=True, key='card_deck'):
+        st.markdown(f"**🖥️ CFO deck** · {deck['slides']} slides · headlines: {deck['source']}")
+        for issue in deck['issues']:
+            st.warning(issue)
+        st.markdown('\n'.join(f'{i}. **{kicker}**: {headline}' for i, (kicker, headline) in enumerate(deck['outline'], 1)))
+        st.download_button('Download CFO deck (PowerPoint)', deck['pptx'],
+                           f"cfo_deck_{locked['period']}_{locked['basis']}.pptx",
+                           'application/vnd.openxmlformats-officedocument.presentationml.presentation', type='primary')

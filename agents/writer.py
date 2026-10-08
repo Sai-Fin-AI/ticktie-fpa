@@ -7,7 +7,7 @@ import json
 from decimal import Decimal
 
 from agents import cost_centre, grouped_lines, inr, line_facts, material_lines, offset_sentences, owner
-from checker import allowed_figures, check_line_text, internal_codes, unsupported_figures
+from checker import allowed_figures, check_line_text, internal_codes, misattributed_figures, unsupported_figures
 from llm import AIError
 from pack import load_pack, pack_json, open_reason
 from report_html import commentary_html
@@ -66,6 +66,7 @@ def check_draft(pack, reply):
             issues.append(f'Summary bullet {i}: "{figure}" is not in the pack')
         for code in internal_codes(bullet):
             issues.append(f'Summary bullet {i}: uses the internal code {code}; name the country and account instead')
+        issues += [f'Summary bullet {i}: {problem}' for problem in misattributed_figures(bullet, pack)]
     for entry in reply['lines']:
         line = lines.get(entry['line_id'])
         if line is None or not line['note']:

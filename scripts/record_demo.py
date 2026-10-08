@@ -78,6 +78,12 @@ def main():
     result = write_commentary(lock_pack(pack), client)
     print('Writer: attempts', result['attempts'], '| issues', result['issues'] or 'none')
     print(result['markdown'])
+    from agents.deck import make_deck
+    deck = make_deck(lock_pack(pack), client)
+    print('Deck:', deck['source'], '| issues', deck['issues'] or 'none')
+    for kicker, headline in deck['outline']:
+        print(f'  {kicker}: {headline}')
+    print('  Summary:', deck['summary'])
     (ROOT / 'demo' / 'recordings.json').write_text(json.dumps(
         {'model': client.label, 'recorded_on': date.today().isoformat(), 'responses': recorder},
         indent=2, ensure_ascii=False) + '\n', encoding='utf-8')

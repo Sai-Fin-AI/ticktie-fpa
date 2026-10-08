@@ -25,6 +25,9 @@ def allowed_figures(pack):
     amounts.update(_dec(th[k]) for k in ('total_amount',) if th.get(k) is not None)
     if t['pct'] is not None:
         pcts.add(abs(_dec(t['pct'])))
+    gross = sum(abs(_dec(l['variance'])) for l in pack['lines'] if l['material'])
+    if gross:
+        pcts.add(_dec(s['explained']) / gross * 100)  # share of material movement explained
     counts = {s['rows'], s['material'], s['open_items'], len({l['country'] for l in pack['lines']})}
     for entries in pack.get('rollups', {}).values():
         for e in entries:
@@ -107,6 +110,79 @@ def _mentions_amount(text, amount):
         if _matches(_dec(raw), decimals, {amount}, UNITS.get(unit, Decimal(1))):
             return True
     return False
+
+
+def figure_records(pack, extra=()):
+    """(label, amounts, pcts) for every line and roll-up, plus any extra records a caller derives from the pack."""
+    records = []
+    for line in pack['lines']:
+        label = ' | '.join([line.get('label', f"{line['country']} | {line['account']}"),
+                            *(v for k, v in line.get('attrs', {}).items() if k in ('owner', 'function'))])
+        amounts = {abs(_dec(line[k])) for k in ('actual', 'baseline', 'variance', 'explained', 'unexplained') if line[k] is not None}
+        if line['note']:
+            amounts.add(_dec(line['note']['amount']))
+            label += ' | ' + line['note']['timing']
+        records.append((label, amounts, {abs(_dec(line['pct']))} if line['pct'] is not None else set()))
+    for entries in pack.get('rollups', {}).values():
+        for e in entries:
+            records.append((e['label'], {abs(_dec(e[k])) for k in ('actual', 'baseline', 'net', 'gross', 'hidden', 'explained', 'unexplained')},
+                            {abs(_dec(e['pct']))} if e['pct'] is not None else set()))
+    return records + [(label, {abs(_dec(a)) for a in amounts}, set()) for label, amounts in extra]
+
+
+def entity_names(pack):
+    """{name: kind}. Structure names (country, cost centre, account...) identify a line together;
+    owners and timing types stand on their own."""
+    names = {t: 'timing' for t in ('One-off', 'Recurring', 'Timing difference')}
+    for line in pack['lines']:
+        for name in (line['country'], line['account'], *line.get('dims', {}).values(),
+                     *(v for k, v in line.get('attrs', {}).items() if k in ('cc_name', 'function'))):
+            if name:
+                names.setdefault(name, 'structure')
+        if line.get('attrs', {}).get('owner'):
+            names.setdefault(line['attrs']['owner'], 'owner')
+    return names
+
+
+def misattributed_figures(text, pack, extra=()):
+    """Amounts in a sentence that names an entity must belong to that entity (or be a grand total).
+
+    Catches the right number attached to the wrong country, account, cost centre or owner.
+    """
+    kinds = entity_names(pack)
+    mentioned = [n for n in kinds if re.search(rf'(?<!\w){re.escape(n)}(?!\w)', text, re.I)]
+    if not mentioned:
+        return []
+    # A cost centre name such as "India Operations" also mentions "India"; keep only the most specific names.
+    mentioned = [n for n in mentioned if not any(n != m and n.lower() in m.lower() for m in mentioned)]
+    structure = [n for n in mentioned if kinds[n] == 'structure']
+    standalone = [n for n in mentioned if kinds[n] != 'structure']
+    t, s, th = pack['totals'], pack['summary'], pack['thresholds']
+    global_amounts = {abs(_dec(v)) for v in (t['actual'], t['baseline'], t['variance'], s['explained'], s['unexplained'],
+                                            th['amount'], th.get('total_amount')) if v is not None}
+    allowed = allowed_figures(pack)
+    gross = sum(abs(_dec(l['variance'])) for l in pack['lines'] if l['material'])
+    global_pcts = {_dec(th[k]) for k in ('pct', 'total_pct') if th.get(k) is not None}
+    global_pcts |= {abs(_dec(t['pct']))} if t['pct'] is not None else set()
+    global_pcts |= {_dec(s['explained']) / gross * 100} if gross else set()
+    every = figure_records(pack, extra)
+    records = [r for r in every if structure and all(m.lower() in r[0].lower() for m in structure)]
+    records += [r for r in every if any(m.lower() in r[0].lower() for m in standalone)]
+    problems = []
+    for match in NUMBER.finditer(text):
+        raw, unit = match.group(1), (match.group(2) or '').lower()
+        value, decimals = _dec(raw), (len(raw.split('.')[1]) if '.' in raw else 0)
+        if unit in ('%', 'percent'):
+            near = lambda targets: any(abs(value - p) <= Decimal(10) ** -decimals / 2 for p in targets)
+            if not near(global_pcts) and not any(near(r[2]) for r in records):
+                problems.append(match.group(0).strip())
+            continue
+        if not unit and value in allowed['plain']:
+            continue
+        scale = UNITS.get(unit, Decimal(1))
+        if not _matches(value, decimals, global_amounts, scale) and not any(_matches(value, decimals, r[1], scale) for r in records):
+            problems.append(match.group(0).strip())
+    return [f'"{p}" does not belong to {" / ".join(mentioned)}' for p in problems]
 
 
 def internal_codes(text):

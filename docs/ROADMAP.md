@@ -107,7 +107,8 @@ Decisions: explanations at cost centre × account and rolled up; the user choose
 - ⬜ Wide budgets (one column per month) and multi-sheet workbooks
 - ⬜ Remember a column mapping per source system
 
-### Phase 4: CFO deck agent (≈4–5 days)
+### Phase 4: CFO deck agent (done 8 Oct 2026)
+**Status:** built in `agents/deck.py`; one button runs it in parallel with the commentary writer. Headlines and summary bullets are AI-written and checked (figures, internal codes, and a new figure-to-entity binding check); failures fall back to standard wording per slide. 8 new tests (75 total). Known limit: the local 8B model's headlines are accurate but bland; a toggle for standard titles is a candidate.
 - ⬜ `agents/deck.py` building a `.pptx` with python-pptx. Slides:
   1. Title & period
   2. Executive summary (3 bullets: net result, biggest drivers, what needs a decision)
