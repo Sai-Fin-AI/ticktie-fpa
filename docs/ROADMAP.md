@@ -63,12 +63,14 @@ Status: ✅ done · 🔜 next · ⬜ planned
 - 🔜 Add a screenshot (`docs/screenshot.png`) to the README
 - 🔜 Repo description, topics (`fpa`, `variance-analysis`, `streamlit`, `finance-automation`, `llm`), pin to GitHub profile
 
-### Phase 2: Structured review pack (≈2–3 days, no AI yet)
-- ⬜ `pack.py`: one schema (dataclasses or pydantic) holding period, basis, thresholds, totals, rows, notes, explained/unexplained amounts
-- ⬜ "Lock pack" step in the UI. After locking, figures and notes are frozen and given a hash.
-- ⬜ Exports: `pack.json`, Excel workbook (variance table + notes + open items), Markdown/Word commentary
-- ⬜ Note export/import (JSON) so explanations survive a browser refresh
-- ⬜ Tests: pack totals reconcile to engine; export round-trips
+### Phase 2: Structured review pack (done 8 Oct 2026)
+- ✅ `pack.py`: one record holding period, basis, thresholds, totals, every line, notes, explained/unexplained amounts and open items. It always covers all countries, whatever filter is on screen.
+- ✅ "Lock review pack" in the UI: freezes the pack with a SHA-256 fingerprint. Any later change to figures, thresholds or notes is detected, and downloads stay hidden until you lock again.
+- ✅ `load_pack` refuses a pack file whose contents were edited after locking (the guard the AI agents will rely on)
+- ✅ Exports: Excel workbook (Summary, Variances, Explanations, Open items), Markdown commentary, pack JSON. Amounts are stored as exact decimal strings.
+- ✅ Explanations backup/restore (JSON). On restore, each note is re-validated against the current data; notes for changed figures are skipped, not adapted.
+- ✅ 7 new tests (28 total): reconciliation, open-item logic, fingerprint/tamper checks, Excel and Markdown contents, notes round-trip, lock/relock and restore in the app
+- ⬜ Word export (deferred; Markdown converts cleanly if needed)
 
 ### Phase 3: Commentary agent (≈3–4 days)
 - ⬜ `agents/commentary.py` using the Claude API with structured (JSON-schema) output

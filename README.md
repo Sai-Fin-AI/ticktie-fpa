@@ -6,7 +6,7 @@
 
 **Month-end variance analysis that never invents a cause.** Upload actuals, budget and forecast. The tool validates the data, calculates variances in exact decimal arithmetic and flags material movements. It then asks the reviewer to explain each one. Figures come only from the engine; explanations come only from people and are labelled as such.
 
-Version 0.2: rule-based commentary. AI commentary and a CFO slide-deck generator are next (see the [roadmap](docs/ROADMAP.md)).
+Version 0.3: rule-based commentary and a locked, exportable review pack. AI commentary and a CFO slide-deck generator are next (see the [roadmap](docs/ROADMAP.md)).
 
 <!-- Add a screenshot: save it as docs/screenshot.png and uncomment the line below. -->
 <!-- ![App screenshot](docs/screenshot.png) -->
@@ -23,6 +23,9 @@ During monthly reporting, FP&A teams reconcile actuals against budget or the lat
 - **Reviewer explanations** per material line: reason, reference, amount explained, review status and timing (one-off, recurring or timing difference).
 - **Explained vs unexplained.** Only *confirmed* notes reduce the unexplained balance. Unconfirmed and conflicting notes stay open.
 - **Downloadable management commentary** that keeps verified figures separate from reviewer-supplied claims.
+- **Locked review pack.** One click freezes figures and explanations for all countries under a SHA-256 fingerprint. Exports come only from the locked pack and are hidden if anything changes afterwards.
+- **Excel, Markdown and JSON exports.** The workbook has Summary, Variances, Explanations and Open items sheets.
+- **Explanations backup and restore.** Restored notes are re-checked against the current figures; stale ones are skipped.
 
 ## How it works
 
@@ -31,7 +34,8 @@ flowchart LR
     A[CSV upload] --> B[finance.py<br/>validate · variance · materiality]
     B --> C[Streamlit review screen]
     C --> D[Reviewer explains<br/>material lines<br/>evidence.py]
-    D --> E[Draft commentary<br/>verified figures + labelled claims]
+    D --> E[Locked review pack<br/>pack.py · fingerprinted]
+    E --> X[Excel · Markdown · JSON]
     E -. planned .-> F[AI commentary agent]
     E -. planned .-> G[CFO deck agent]
 ```
@@ -40,8 +44,9 @@ flowchart LR
 | --- | --- |
 | `finance.py` | CSV validation, variance and materiality engine (Decimal only) |
 | `evidence.py` | Reviewer notes, coverage arithmetic, evidence-aware commentary |
+| `pack.py` | Locked review pack, tamper check, Excel/Markdown/JSON exports, notes backup and restore |
 | `app.py` | Streamlit interface |
-| `tests/` | 21 tests: engine, evidence rules and Streamlit AppTest UI checks |
+| `tests/` | 28 tests: engine, evidence rules, review pack and Streamlit AppTest UI checks |
 
 ## Run it locally
 
@@ -82,13 +87,13 @@ Download **sample input** from the app sidebar and edit it in Excel (save as CSV
 
 ## Limitations
 
-Expense accounts only (no revenue or credits), one month per file, INR only. Accounts missing entirely from the upload can't be detected without an expected-account roster. Notes live in the browser session only. Reference labels are not fetched or verified, and "confirmed" is the reviewer's assertion. Full details are in [VERIFICATION.md](VERIFICATION.md).
+Expense accounts only (no revenue or credits), one month per file, INR only. Accounts missing entirely from the upload can't be detected without an expected-account roster. Notes live in the browser session unless you download the explanations backup. Reference labels are not fetched or verified, and "confirmed" is the reviewer's assertion. Full details are in [VERIFICATION.md](VERIFICATION.md).
 
 ## Roadmap
 
 1. ✅ Engine, validation, reviewer explanations, tests
-2. 🔜 Locked review pack + Excel/JSON export
-3. AI commentary agent that asks follow-up questions on vague reasons and compiles structured commentary, with a number validator
+2. ✅ Locked review pack + Excel/Markdown/JSON export, explanations backup and restore
+3. 🔜 AI commentary agent that asks follow-up questions on vague reasons and compiles structured commentary, with a number validator
 4. CFO deck agent (python-pptx), running in parallel with the commentary agent on the same locked pack
 5. Hosted demo
 

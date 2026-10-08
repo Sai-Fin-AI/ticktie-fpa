@@ -1,4 +1,6 @@
 streamlit==1.64.0
+openpyxl==3.1.5
+et_xmlfile==2.0.0
 # Transitive dependencies locked to the versions verified on 8 October 2026
 altair==6.3.0
 anyio==4.15.1

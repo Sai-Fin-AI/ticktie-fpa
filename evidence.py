@@ -36,6 +36,11 @@ def make_note(row, baseline, reason, reference, amount, status, timing, action='
                 amount=value, status=status, timing=timing, action=action)
 
 
+def accepted_amount(note):
+    """Only reviewer-confirmed notes count toward explained variance."""
+    return note['amount'] if note and note['status'] == 'Confirmed by reviewer' else Decimal('0')
+
+
 def evidence_commentary(row, baseline, note=None):
     text = commentary(row, baseline)
     caution = (' Favorable spend does not by itself establish lasting savings; review timing and activity.'
@@ -48,7 +53,7 @@ def evidence_commentary(row, baseline, note=None):
              f"Review status: {note['status']}.\nSupplied explanation: {note['reason']} "
              f"Reported amount explained: INR {note['amount']:,.2f}. "
              f"Timing reported by reviewer: {note['timing']}.")
-    accepted = note['amount'] if note['status'] == 'Confirmed by reviewer' else Decimal('0')
+    accepted = accepted_amount(note)
     if note['status'] != 'Confirmed by reviewer':
         text += ' This explanation is unresolved and is not counted toward explained variance.'
     text += f" Unexplained amount: INR {abs(row['variance']) - accepted:,.2f}."

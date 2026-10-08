@@ -4,3 +4,4 @@ __pycache__/
 .env
 .streamlit/secrets.toml
 private_data/
+.claude/

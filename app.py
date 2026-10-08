@@ -4,10 +4,11 @@ import hashlib
 import streamlit as st
 from finance import load_csv, sample_csv, analyze, compare
 from evidence import STATUSES, TIMINGS, note_key, make_note, evidence_commentary
+from pack import build_pack, lock_pack, pack_json, pack_excel, pack_markdown, export_notes, import_notes
 
 st.set_page_config(page_title='FP&A Variance Assistant', page_icon='📊', layout='wide')
 st.title('FP&A Variance Assistant')
-st.caption('Project 1 · Expense analysis · INR reporting currency · Version 0.2')
+st.caption('Project 1 · Expense analysis · INR reporting currency · Version 0.3')
 st.caption('Commentary uses fixed rules; AI is a later phase.')
 
 with st.sidebar:
@@ -18,6 +19,8 @@ with st.sidebar:
     st.caption('Both thresholds must be met. With a zero baseline, only the INR threshold applies.')
     upload = st.file_uploader('Upload a one-month expense CSV', type=['csv'])
     st.download_button('Download sample input', sample_csv(), 'sample_expenses.csv', 'text/csv')
+    notes_upload = st.file_uploader('Restore saved explanations (JSON)', type=['json'],
+                                    help='A file from "Download explanations". Notes are re-checked against the current data.')
 
 try:
     raw = upload.getvalue() if upload is not None else sample_csv().encode()
@@ -27,6 +30,8 @@ try:
         had_notes = bool(st.session_state.get('business_notes'))
         st.session_state.business_notes = {}
         st.session_state.evidence_source = fingerprint
+        st.session_state.pop('locked_pack', None)
+        st.session_state.pop('notes_import', None)
         for key in list(st.session_state):
             if key.startswith('evidence_widget_'):
                 del st.session_state[key]
@@ -37,6 +42,22 @@ try:
 except (ValueError, UnicodeError) as error:
     st.error(str(error))
     st.stop()
+
+if notes_upload is not None:
+    notes_id = hashlib.sha256(notes_upload.getvalue()).hexdigest()
+    if st.session_state.get('notes_import') != notes_id:
+        st.session_state.notes_import = notes_id
+        try:
+            restored, skipped = import_notes(notes_upload.getvalue().decode('utf-8-sig'), rows)
+            st.session_state.business_notes.update(restored)
+            # Drop cached form values so the restored text is shown.
+            for key in list(st.session_state):
+                if key.startswith('evidence_widget_') and not key.startswith('evidence_widget_account_'):
+                    del st.session_state[key]
+            st.success(f'Restored {len(restored)} explanation(s).' +
+                       (f' {skipped} skipped because they do not match the current figures.' if skipped else ''))
+        except (ValueError, UnicodeError) as error:
+            st.error(str(error))
 
 if upload is not None:
     st.info('Uploaded data is loaded. Review the figures and commentary before use.')
@@ -116,6 +137,33 @@ else:
     st.write('No account movements meet the current thresholds.')
     summary += 'No account movements meet the current thresholds.\n'
 st.download_button('Download commentary', summary, 'management_commentary.txt', 'text/plain')
+if st.session_state.business_notes:
+    st.download_button('Download explanations (JSON)', export_notes(st.session_state.business_notes),
+                       f"explanations_{selected[0]['month']}.json", 'application/json',
+                       help='Back up your notes. Restore them later from the sidebar.')
+
+st.subheader('Review pack')
+st.caption(f'Locking freezes the figures and saved explanations for all countries, compared with {baseline}, '
+           'into one fingerprinted pack. Exports, and later AI commentary and slides, use only the locked pack.')
+current_pack = build_pack(rows, baseline, amount, pct, st.session_state.business_notes)
+if st.button('Lock review pack'):
+    st.session_state.locked_pack = lock_pack(current_pack)
+locked = st.session_state.get('locked_pack')
+if locked and locked['content_hash'] != current_pack['content_hash']:
+    st.warning('Figures, settings or explanations changed since the pack was locked. Lock again to export the current state.')
+elif locked:
+    s = locked['summary']
+    st.success(f"Pack locked {locked['locked_at']} · fingerprint {locked['content_hash'][:12]} · "
+               f"{s['material']} material movements · {s['open_items']} open items · "
+               f"INR {Decimal(s['unexplained']):,.2f} unexplained")
+    stem = f"review_pack_{locked['period']}_{locked['basis']}"
+    d1, d2, d3 = st.columns(3)
+    d1.download_button('Excel workbook', pack_excel(locked), stem + '.xlsx',
+                       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    d2.download_button('Commentary (Markdown)', pack_markdown(locked), stem + '.md', 'text/markdown')
+    d3.download_button('Pack data (JSON)', pack_json(locked), stem + '.json', 'application/json')
+else:
+    st.write('Not locked yet. Save explanations first, then lock the pack.')
 
 with st.expander('Finance rules and limitations'):
     st.write('Variance = actual minus comparison value. Positive expense variances are unfavorable. '
