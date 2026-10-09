@@ -31,7 +31,11 @@ def bridge_chart(walk, baseline):
     legend = {'Total': f'{baseline.title()} / actual', good: 'Lowers cost' if name == 'Costs' else 'Helps',
               bad: 'Raises cost' if name == 'Costs' else 'Hurts'}
     frame['legend'] = frame['kind'].map(legend)
-    x = alt.X('step:N', sort=list(frame['step']), title=None, axis=alt.Axis(labelAngle=-30, labelLimit=120))
+    # Every bar keeps its own label: by default Vega drops labels that would overlap, which leaves the
+    # remaining names under the wrong bars. Angled labels, long names shortened with an ellipsis instead.
+    x = alt.X('step:N', sort=list(frame['step']), title=None,
+              axis=alt.Axis(labelAngle=-40, labelAlign='right', labelBaseline='top', labelOverlap=False,
+                            labelLimit=115, labelFontSize=11, labelColor='#344054', labelPadding=4))
     colour = alt.Color('legend:N', title=None, scale=alt.Scale(domain=list(legend.values()), range=[TOTAL, GOOD, BAD]),
                        legend=alt.Legend(orient='top'))
     bars = alt.Chart(frame).mark_bar(cornerRadius=3, clip=True).encode(  # the axis does not start at zero

@@ -94,6 +94,18 @@ class StatementTests(unittest.TestCase):
         self.assertEqual(bridge(self.rows, 'budget', 'Sales')['steps'], [('Product sales', D(500000), True)])
 
 
+class WaterfallChartTests(unittest.TestCase):
+    def test_every_bar_keeps_its_own_label(self):
+        from charts import bridge_chart
+        walk = bridge(demo_rows(), 'budget', 'Costs')
+        spec = bridge_chart(walk, 'budget').to_dict()
+        layer = spec['layer'][0]
+        self.assertFalse(layer['encoding']['x']['axis']['labelOverlap'])  # never hide labels, or names shift bars
+        steps = [row['step'] for row in spec['datasets'][next(iter(spec['datasets']))]]
+        self.assertEqual(steps, ['Budget costs', 'Cost of goods sold', 'Distribution', 'Consulting', 'Income tax',
+                                 'Employee costs', 'Warehousing', 'Actual costs'])
+
+
 class SalesUploadTests(unittest.TestCase):
     def test_column_dropdown_knows_pl_line(self):
         self.assertEqual(guess_roles(['Month', 'Account', 'P&L line', 'Actual', 'Budget', 'Forecast'], 'pl')[2], 'pl_line')
