@@ -16,7 +16,7 @@ from openpyxl import Workbook, load_workbook
 from finance import CC, CC_ATTRS, SAMPLE_LINES, _column
 
 IGNORE, EXTRA = 'ignore', 'extra'
-ROLE_LABELS = {'month': 'Month', 'country': 'Country / entity', CC: 'Cost centre', 'account': 'GL account',
+ROLE_LABELS = {'month': 'Month', 'country': 'Country / entity', CC: 'Cost centre', 'account': 'Account or GL code',
                'currency': 'Currency', 'amount': 'Amount', 'actual': 'Actual amount', 'budget': 'Budget amount',
                'forecast': 'Forecast amount', 'cc_name': 'Cost centre name', 'function': 'Function', 'owner': 'Owner',
                'pl_line': 'P&L line', EXTRA: 'Extra dimension', IGNORE: 'Ignore'}
@@ -72,6 +72,17 @@ def read_table(data, name):
         raise ValueError(f'{name}: the file is empty.')
     headers = [str(h).strip() or f'Column {i}' for i, h in enumerate(rows[0], 1)]
     return headers, rows[1:]
+
+
+def table_csv(data, name):
+    """A CSV or Excel upload as CSV text, for files read straight by the engine (for example the GL mapping).
+    Excel numbers come back as written: GL code 510100, not 510100.0."""
+    headers, rows = read_table(data, name)
+    out = io.StringIO(newline='')
+    writer = csv.writer(out)
+    writer.writerow(headers)
+    writer.writerows([_text(v) for v in row] for row in rows)
+    return out.getvalue()
 
 
 def guess_roles(headers, kind):
@@ -169,8 +180,9 @@ def _write(rows, dims, attrs):
     return out.getvalue()
 
 
-def combined_csv(headers, rows, roles, name, country='', currency='INR'):
-    """One file with actual, budget and forecast columns, rewritten in the standard layout."""
+def combined_csv(headers, rows, roles, name, country='', currency='INR', allow_negative=False):
+    """One file with actual, budget and forecast columns, rewritten in the standard layout.
+    allow_negative: GL-level data, where a credit GL code may be negative."""
     dims, attrs = _dims(headers, roles), [a for a in CC_ATTRS + ('pl_line',) if a in roles]
     extra_cols = {h: _column(h) for h, r in zip(headers, roles) if r == EXTRA}
     out = []
@@ -185,9 +197,10 @@ def combined_csv(headers, rows, roles, name, country='', currency='INR'):
         for field in ('actual', 'budget', 'forecast'):
             raw = values[field]
             try:
-                amounts.append(parse_amount(raw) if _text(raw) else '')
+                amounts.append(parse_amount(raw, allow_negative) if _text(raw) else '')
             except InvalidOperation:
-                raise ValueError(f'{name} row {line}: {field} must be a nonnegative number with at most 2 decimals.') from None
+                kind = 'a' if allow_negative else 'a nonnegative'
+                raise ValueError(f'{name} row {line}: {field} must be {kind} number with at most 2 decimals.') from None
         out.append((month, _text(values['country']) if 'country' in values else country.strip(),
                     *(_text(values[d]) for d in dims), _text(values['account']),
                     _text(values['currency']) if 'currency' in values else currency, *amounts,
@@ -223,9 +236,12 @@ def _single(kind, headers, rows, roles, name, country, currency):
     return lines, dims, attrs
 
 
-def separate_csv(files, country='', currency='INR'):
+def separate_csv(files, country='', currency='INR', resolve=None):
     """files: {'actuals': (headers, rows, roles, name), 'budget': ..., optional 'forecast': ...}.
 
+    resolve: GL code -> reporting account, when a GL mapping is used. Lines then stay at GL code level (a
+    credit GL may be negative), but a line counts as budgeted when its account has a budget in any GL code,
+    so a budget kept at account level matches actuals posted to GL codes.
     Returns (standard CSV text, cost centre details from the actuals, reconciliation report).
     """
     parsed = {kind: _single(kind, *spec, country, currency) for kind, spec in files.items()}
@@ -249,21 +265,19 @@ def separate_csv(files, country='', currency='INR'):
             key = (ctry, tuple(v for d, v in dims if d in common), account, ccy)
             slot = merged.setdefault(key, {})
             slot[kind] = slot.get(kind, Decimal(0)) + amount
-    rows, unbudgeted, unspent = [], [], []
+    rows, found = [], {}
     for (ctry, dims, account, ccy), slot in merged.items():
         label = ' | '.join((ctry, *dims, account))
-        if 'budget' not in slot:
-            unbudgeted.append(label)
-        if 'actuals' not in slot:
-            unspent.append(label)
+        found.setdefault(' | '.join((ctry, *dims, resolve(account) if resolve else account)), set()).update(slot)
         actual, budget = slot.get('actuals', Decimal(0)), slot.get('budget', Decimal(0))
         forecast = slot.get('forecast', Decimal(0)) if 'forecast' in parsed else budget
         for field, value in (('actual', actual), ('budget', budget), ('forecast', forecast)):
-            if value < 0:
+            if value < 0 and not resolve:  # with GL codes, the account total is checked after the roll-up
                 raise ValueError(f'{label}: {field} nets to a negative INR {value:,.2f}. Credits larger than spend are '
                                  'not supported for expense lines.')
         rows.append((month, ctry, *dims, account, ccy, actual, budget, forecast))
-    report.update(unbudgeted=unbudgeted, unspent=unspent)
+    report.update(unbudgeted=[l for l, s in found.items() if 'budget' not in s],
+                  unspent=[l for l, s in found.items() if 'actuals' not in s])
     attrs = {code: info for code, info in attrs.items() if info} if CC in common else {}
     return _write(rows, common, []), attrs, report
 

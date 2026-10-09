@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import streamlit as st
 
-from finance import sample_csv, sample_pl_csv
+from finance import gl_resolver, sample_csv, sample_gl_csv, sample_gl_pl_csv, sample_pl_csv
 from ingest import (ROLE_LABELS, ROLES, check_roles, combined_csv, guess_roles, read_table, sample_actuals_csv,
                     sample_budget_xlsx, sample_forecast_csv, separate_csv)
 
@@ -23,6 +23,8 @@ def source_uploads():
         uploads = {'combined': st.file_uploader('Upload a one-month expense file (CSV or Excel)', type=TYPES,
                                                 help='Any column order or names: you confirm what each column means.')}
         st.download_button('Download sample input', sample_csv(), 'sample_expenses.csv', 'text/csv')
+        st.download_button('Sample input by GL code', sample_gl_csv(), 'sample_expenses_by_gl.csv', 'text/csv',
+                           help='The same data posted to GL codes (several per account). Use it with the sample GL mapping.')
     else:
         uploads = {kind: st.file_uploader(label, type=TYPES, key='upload_' + kind) for kind, label in FILES}
         st.caption('Samples in the shape systems export them:')
@@ -60,10 +62,11 @@ def _map_columns(kind, upload):
     return headers, rows, roles, upload.name
 
 
-def load_inputs(mode, uploads):
+def load_inputs(mode, uploads, gl_map=None):
     """Main area: mapping and conversion. Returns a dict describing the standard-layout data.
 
     'pl_text' is the optional sales and P&L file in the standard layout (None without one).
+    gl_map: the uploaded GL mapping, when the files post to GL codes. The demo is GL-level data.
     """
     main = {'combined'} if mode == COMBINED else {'actuals', 'budget'}
     if not main <= set(uploads):
@@ -71,7 +74,7 @@ def load_inputs(mode, uploads):
             st.info('Upload at least the actuals and budget files. Until then the demo data is shown.')
         elif 'pl' in uploads:
             st.info('Upload the main expense file as well. Until then the demo data is shown.')
-        return {'text': sample_csv(), 'pl_text': sample_pl_csv(), 'source': 'demo', 'demo': True, 'attrs': {},
+        return {'text': sample_gl_csv(), 'pl_text': sample_gl_pl_csv(), 'source': 'demo', 'demo': True, 'attrs': {},
                 'report': None, 'has_forecast': True, 'fingerprint': 'demo'}
     kinds = (['combined'] if mode == COMBINED else [k for k, _ in FILES if k in uploads]) + (['pl'] if 'pl' in uploads else [])
     specs = {kind: _map_columns(kind, uploads[kind]) for kind in kinds}
@@ -89,13 +92,17 @@ def load_inputs(mode, uploads):
         digest.update(kind.encode() + spec[3].encode() + uploads[kind].getvalue() + repr(spec[2]).encode())
     digest.update(country.encode())
     source = 'upload:' + ','.join(f'{k}={s[3]}' for k, s in specs.items())
+    # Negative amounts pass the conversion; load_csv then refuses them, or, with a GL mapping, allows a credit
+    # GL code and checks the account totals after the roll-up.
+    credits = gl_map is not None
     pl_spec = specs.pop('pl', None)
-    pl_text = combined_csv(*pl_spec, country) if pl_spec else None
+    pl_text = combined_csv(*pl_spec, country, allow_negative=True) if pl_spec else None
     if mode == COMBINED:
         headers, rows, roles, name = specs['combined']
-        return {'text': combined_csv(headers, rows, roles, name, country), 'pl_text': pl_text, 'source': source,
-                'demo': False, 'attrs': {}, 'report': None, 'has_forecast': True, 'fingerprint': digest.hexdigest()}
-    text, attrs, report = separate_csv(specs, country)
+        return {'text': combined_csv(headers, rows, roles, name, country, allow_negative=True), 'pl_text': pl_text,
+                'source': source, 'demo': False, 'attrs': {}, 'report': None, 'has_forecast': True,
+                'fingerprint': digest.hexdigest()}
+    text, attrs, report = separate_csv(specs, country, resolve=gl_resolver(gl_map) if credits else None)
     return {'text': text, 'pl_text': pl_text, 'source': source, 'demo': False, 'attrs': attrs, 'report': report,
             'has_forecast': report['forecast'], 'fingerprint': digest.hexdigest()}
 

@@ -3,8 +3,11 @@ from decimal import Decimal
 import hashlib
 import streamlit as st
 import fmt
-from finance import (CC, SALES, aggregate, apply_master, bridge, bridge_options, compare, dim_label, line_label,
-                     load_cc_master, load_csv, merge_datasets, review_lines, sample_cc_master_csv, statement)
+from finance import (CC, SALES, UnmappedGL, accounts_in, aggregate, apply_gl_map, apply_master, bridge, bridge_options, compare,
+                     dim_label, line_label, load_cc_master, load_csv, load_gl_map, looks_like_gl_codes, merge_datasets,
+                     review_lines, sample_cc_master_csv, sample_gl_map_csv, statement)
+from ingest import table_csv
+from gl_panel import XLSX, gl_breakdown, gl_codes_view, mapping_workbook
 from evidence import STATUSES, TIMINGS, note_key, make_note, evidence_commentary
 from pack import (MONTHS, build_pack, lock_pack, pack_json, pack_excel, pack_markdown, export_notes, import_notes,
                   rollup_views)
@@ -42,14 +45,35 @@ with st.sidebar:
                                      help='Columns: cost_center, plus any of country, cc_name, function, owner. '
                                           'Checks every cost centre is known and lists any with no data.')
     st.download_button('Download sample cost centre master', sample_cc_master_csv(), 'sample_cost_centres.csv', 'text/csv')
+    gl_upload = st.file_uploader('GL mapping (optional, CSV or Excel)', type=['csv', 'xlsx'],
+                                 help='For data posted to GL codes. Columns: gl_code and account (the reporting account '
+                                      'it rolls up to), plus optional gl_name and pl_line. Many GL codes can share one account.')
+    gl_box = st.container()  # the mapping download, once the data is known
     notes_upload = st.file_uploader('Restore saved explanations (JSON)', type=['json'],
                                     help='A file from "Download explanations". Notes are re-checked against the current data.')
 client = ai_settings()
 
+def gl_template_hint(codes):
+    """Data that posts to GL codes but has no mapping: say so and offer a mapping template with every code."""
+    st.info('The account column looks like GL codes (for example ' + codes[0] + '). To roll them up to reporting '
+            'accounts, download the GL mapping template in the sidebar, fill in the account for each code and upload it.')
+    with gl_box:
+        st.download_button(f'Download GL mapping template ({len(codes)} codes)', mapping_workbook({}, codes, codes),
+                           'gl_mapping.xlsx', XLSX, type='primary',
+                           help='Every GL code in your data, with the account left blank to fill in.')
+
+
+gl_map = gl_info = inputs = None
 try:
-    inputs = load_inputs(mode, uploads)
+    gl_raw = gl_upload.getvalue() if gl_upload is not None else b''
+    gl_map = load_gl_map(table_csv(gl_raw, gl_upload.name)) if gl_raw else None
+    inputs = load_inputs(mode, uploads, gl_map)
+    if inputs['demo']:  # the demo posts to GL codes and comes with its own mapping
+        if gl_raw:
+            st.info('Your GL mapping is used once you upload your own data. The demo uses its sample mapping.')
+        gl_map = load_gl_map(sample_gl_map_csv())
     master_raw = master_upload.getvalue() if master_upload is not None else b''
-    fingerprint = hashlib.sha256(inputs['fingerprint'].encode() + b'\0' + master_raw).hexdigest()
+    fingerprint = hashlib.sha256(inputs['fingerprint'].encode() + b'\0' + master_raw + b'\0' + gl_raw).hexdigest()
     if st.session_state.get('evidence_source') != fingerprint:
         had_notes = bool(st.session_state.get('business_notes'))
         st.session_state.business_notes = {}
@@ -61,21 +85,44 @@ try:
                 del st.session_state[key]
         if had_notes:
             st.warning('The input changed. Previous business explanations were cleared; enter notes for this data.')
-    dataset, checks = load_csv(inputs['text']), []
+    credits = gl_map is not None  # a credit GL code may be negative; its account total may not
+    dataset, checks = load_csv(inputs['text'], allow_negative=credits), []
     if inputs.get('pl_text'):  # sales and other P&L lines: accounts the name does not place are read as sales
-        dataset = merge_datasets(dataset, load_csv(inputs['pl_text'], default_line=SALES))
+        dataset = merge_datasets(dataset, load_csv(inputs['pl_text'], default_line=SALES, allow_negative=credits))
     for code, details in inputs['attrs'].items():  # cost centre details found in a separate actuals file
         if code in dataset.attrs:
             dataset.attrs[code].update(details)
+    if gl_map is not None:
+        dataset, gl_info = apply_gl_map(dataset, gl_map)
     if master_raw:
         dataset, checks = apply_master(dataset, load_cc_master(master_raw.decode('utf-8-sig')))
     elif inputs['demo']:
         dataset, checks = apply_master(dataset, load_cc_master(sample_cc_master_csv()))
     if baseline == 'forecast' and not inputs['has_forecast']:
         raise ValueError('No forecast file was uploaded. Compare against budget, or add a forecast file.')
+except UnmappedGL as error:
+    st.error(str(error))
+    st.download_button('Download GL mapping with the new codes', mapping_workbook(gl_map, error.present, error.codes),
+                       'gl_mapping.xlsx', XLSX, type='primary',
+                       help='Your mapping plus the new codes, highlighted, with the account left blank to fill in.')
+    st.stop()
 except (ValueError, UnicodeError) as error:
     st.error(str(error))
+    if inputs and gl_map is None:  # for example a credit GL code stopped a file that needs a GL mapping
+        codes = accounts_in(inputs['text'] + '\n'.join((inputs.get('pl_text') or '').splitlines()[1:]))
+        if looks_like_gl_codes(codes):
+            gl_template_hint(codes)
     st.stop()
+
+if gl_info:
+    with gl_box:
+        st.download_button('Download GL mapping master', mapping_workbook(gl_map, [r['gl_code'] for r in dataset]),
+                           'gl_mapping.xlsx', XLSX, help='The mapping in use, as Excel: edit it and upload it again.')
+elif looks_like_gl_codes({r['account'] for r in dataset}):
+    gl_template_hint(sorted({r['account'] for r in dataset}))
+else:
+    with gl_box:
+        st.download_button('Download sample GL mapping', sample_gl_map_csv(), 'sample_gl_mapping.csv', 'text/csv')
 
 with level_box:
     chosen_dims = st.multiselect('Analyse by', list(dataset.dims), default=list(dataset.dims), format_func=dim_label,
@@ -114,6 +161,11 @@ if not inputs['demo']:
     st.info('Uploaded data is loaded. Review the figures and commentary before use.')
 else:
     st.info('Synthetic demo data is loaded. All sample records, cost centres and owners are fictional.')
+if gl_info:
+    unused = len(gl_info['unused'])
+    st.caption(f"🔗 GL mapping: {gl_info['gl_codes']} GL codes roll up into {gl_info['accounts']} accounts."
+               + (f' {unused} mapped GL code(s) have no rows this month.' if unused else '')
+               + ' See them under Variance detail → GL codes, and in each line you explain.')
 for check in checks:
     st.warning(check)
 show_reconciliation(inputs['report'], rows)
@@ -199,9 +251,12 @@ if grain:
 with st.container(border=True, key='card_2'):
     section('📋', 'Variance detail')
     views = rollup_views(grain, current_pack['lines'])
-    view = st.radio('View by', ['Lines'] + [label for _, label, _ in views], horizontal=True) if views else 'Lines'
+    choices = ['Lines'] + (['GL codes'] if gl_info else []) + [label for _, label, _ in views]
+    view = st.radio('View by', choices, horizontal=True) if len(choices) > 1 else 'Lines'
     has_owner = any(r.get('owner') for r in result)
-    if view == 'Lines':
+    if view == 'GL codes':
+        gl_codes_view(dataset, grain, baseline, in_view)
+    elif view == 'Lines':
         display = [{'Country': r['country'], **{dim_label(d): r[d] for d in grain}, 'Account': r['account'],
                     **({'Owner': r.get('owner', '')} if has_owner else {}),
                     'Actual INR': float(r['actual']), f'{baseline.title()} INR': float(r[baseline]),
@@ -221,9 +276,10 @@ with st.container(border=True, key='card_2'):
                    if not country_scoped or country == 'All countries' or e['label'].startswith(country + ' | ')]
         st.caption('Gross movement adds up the size of every line, so it shows what offsetting lines hide inside the net figure.'
                    + ('' if country_scoped else ' This view covers all countries.'))
-    frame = pd.DataFrame(display)
-    st.dataframe(colour_table(frame) if len(frame) else frame, width='stretch', hide_index=True,
-                 column_config=money_columns(frame))
+    if view != 'GL codes':
+        frame = pd.DataFrame(display)
+        st.dataframe(colour_table(frame) if len(frame) else frame, width='stretch', hide_index=True,
+                     column_config=money_columns(frame))
 
 section('✍️', 'Business explanations')
 st.caption(f'Add one consolidated note per line ({level_name}) and comparison. Notes stay in this browser session only. '
@@ -252,6 +308,8 @@ if material:
         who = f" Owner: {target['owner']}." if target.get('owner') else ''
         st.caption(f"Variance to explain: INR {abs(target['variance']):,.2f} ({target['direction'].lower()}).{who} "
                    'Enter a positive amount, no larger than this variance.')
+        if gl_info:
+            gl_breakdown(dataset, target, baseline)
         # Seed the widgets from the saved note through session state: a keyed widget keeps its old browser value
         # and ignores a changed `value=`, so loaded or restored notes would otherwise show an empty form.
         defaults = {'reason': saved.get('reason', ''), 'reference': saved.get('reference', ''),
@@ -341,3 +399,8 @@ with st.expander('Finance rules and limitations'):
              'brings all its moving lines into scope. Gross movement shows what offsetting lines hide inside a net figure. '
              'A cost centre master detects unknown cost centres and lists cost centres with no data; without a master, '
              'an entirely omitted account cannot be detected. All sample records are fictional. Commentary must be reviewed before use.')
+    st.write('With a GL mapping, the account column of the data holds GL codes and each GL code rolls up to its reporting '
+             'account; the analysis runs on accounts and the GL codes stay visible for drill-down. A GL code missing from '
+             'the mapping stops the analysis, so nothing is dropped silently. A value that already is a reporting account '
+             '(for example a budget kept at account level) is kept as it is. A credit GL code may be negative; an account '
+             'that nets to a negative amount stops the analysis.')

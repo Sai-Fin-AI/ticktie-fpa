@@ -86,8 +86,12 @@ def _header(reader):
     return names
 
 
-def load_csv(text, default_line=OPEX):
-    """default_line: the P&L line for accounts whose name does not say (no pl_line column)."""
+def load_csv(text, default_line=OPEX, allow_negative=False):
+    """default_line: the P&L line for accounts whose name does not say (no pl_line column).
+
+    allow_negative: GL-level data, where a credit GL code (a recovery, a reversal) may be negative; the
+    accounts it rolls up to are checked for a negative net by apply_gl_map.
+    """
     reader = csv.reader(io.StringIO(text.lstrip('﻿')))
     names = _header(reader)
     missing = [c for c in REQUIRED if c not in names]
@@ -120,10 +124,11 @@ def load_csv(text, default_line=OPEX):
         for field in AMOUNTS:
             try:
                 value = Decimal(raw[field])
-                if not value.is_finite() or value < 0 or value != value.quantize(Decimal('.01')):
+                if not value.is_finite() or (value < 0 and not allow_negative) or value != value.quantize(Decimal('.01')):
                     raise InvalidOperation
             except InvalidOperation:
-                raise ValueError(f'Row {line}: {field} must be a nonnegative number with at most 2 decimals.') from None
+                kind = 'a' if allow_negative else 'a nonnegative'
+                raise ValueError(f'Row {line}: {field} must be {kind} number with at most 2 decimals.') from None
             row[field] = value
         if CC in dims:
             info = {'country': raw['country'], **{a: raw[a] for a in attr_cols}}
@@ -186,6 +191,143 @@ def apply_master(dataset, master):
     unused = sorted(set(master) - set(dataset.attrs))
     warnings = ['Completeness check: no rows for cost centres ' + ', '.join(unused) + ' listed in the master.'] if unused else []
     return Dataset(dataset, dataset.dims, merged), warnings
+
+
+# GL mapping: when ledgers post to many GL codes per reporting account (Travel = airfare, hotels, local
+# conveyance ...), the data's account column holds GL codes and a mapping rolls them up to accounts.
+GL = 'gl_code'
+GL_COLUMNS = {'gl': GL, 'gl_account': GL, 'glcode': GL, 'gl_number': GL, 'gl_account_code': GL, 'gl_account_number': GL,
+              'gl_description': 'gl_name', 'gl_account_name': 'gl_name', 'gl_account_description': 'gl_name',
+              'description': 'gl_name', 'reporting_account': 'account', 'mapped_account': 'account',
+              'account_name': 'account', 'group_account': 'account', 'account_group': 'account'}
+
+
+class UnmappedGL(ValueError):
+    """GL codes in the data that the mapping does not know. codes: the unknown ones; present: every code in the data."""
+
+    def __init__(self, codes, present):
+        self.codes, self.present = codes, present
+        shown = ', '.join(codes[:10]) + (f' and {len(codes) - 10} more' if len(codes) > 10 else '')
+        super().__init__(f'{len(codes)} GL code(s) in the data are not in the GL mapping: {shown}. Download the '
+                         'mapping file below, fill in the account for each new code, and upload it again.')
+
+
+def load_gl_map(text):
+    """GL mapping: gl_code and account, plus optional gl_name and pl_line. Other columns are ignored.
+
+    Returns {gl_code: {'account', 'gl_name', optional 'pl_line'}}. An account sits on one P&L line.
+    """
+    reader = csv.reader(io.StringIO(text.lstrip('﻿')))
+    names = [GL_COLUMNS.get(n, n) for n in _header(reader)]
+    if GL not in names or 'account' not in names:
+        raise ValueError('The GL mapping needs a gl_code column and an account column (the reporting account each '
+                         'GL code rolls up to).')
+    repeated = sorted({n for n in names if names.count(n) > 1})
+    if repeated:
+        raise ValueError('The GL mapping has more than one column for ' + ', '.join(repeated) + '.')
+    gl_map, lines_of = {}, {}
+    for line, values in enumerate(reader, 2):
+        if not any(v.strip() for v in values):
+            continue
+        if len(values) != len(names):
+            raise ValueError(f'GL mapping row {line}: missing value or extra column.')
+        raw = dict(zip(names, (v.strip() for v in values)))
+        code, account = raw[GL], raw['account']
+        if not code:
+            raise ValueError(f'GL mapping row {line}: the gl_code is empty.')
+        if not account:
+            raise ValueError(f'GL mapping row {line}: GL {code} has no account. Fill in the account it rolls up to.')
+        if code in gl_map:
+            raise ValueError(f'GL mapping row {line}: GL {code} is listed twice.')
+        entry = {'account': account, 'gl_name': raw.get('gl_name', '')}
+        if raw.get('pl_line'):
+            entry['pl_line'] = pl_line_value(raw['pl_line'])
+            if entry['pl_line'] is None:
+                raise ValueError(f'GL mapping row {line}: P&L line "{raw["pl_line"]}" is not one of: ' + ', '.join(PL_LINES) + '.')
+            if lines_of.setdefault(account, entry['pl_line']) != entry['pl_line']:
+                raise ValueError(f'GL mapping row {line}: account {account} is on two P&L lines. All GL codes of an '
+                                 'account sit on one line.')
+        gl_map[code] = entry
+    if not gl_map:
+        raise ValueError('The GL mapping has no rows.')
+    return gl_map
+
+
+def gl_resolver(gl_map):
+    """GL code -> reporting account. A value that already is a reporting account (for example a budget kept at
+    account level while actuals post to GL codes) stays as it is."""
+    return lambda code: gl_map[code]['account'] if code in gl_map else code
+
+
+def apply_gl_map(dataset, gl_map):
+    """Roll the data's GL codes up to reporting accounts.
+
+    Returns (dataset, summary). Rows keep their gl_code and gl_name, so aggregate() adds up the GL codes of an
+    account and gl_lines() shows them. Unknown codes stop with UnmappedGL; an account whose GL codes net to a
+    negative amount stops (credits larger than spend are not supported).
+    """
+    accounts = {e['account'] for e in gl_map.values()}
+    present = sorted({r['account'] for r in dataset})
+    unknown = [c for c in present if c not in gl_map and c not in accounts]
+    if unknown:
+        raise UnmappedGL(unknown, present)
+    lines_of = {e['account']: e['pl_line'] for e in gl_map.values() if 'pl_line' in e}
+    rows = []
+    for r in dataset:
+        entry = gl_map.get(r['account'], {'account': r['account'], 'gl_name': 'Booked at account level'})
+        account = entry['account']
+        line = entry.get('pl_line') or lines_of.get(account) or pl_line_for(account, r['pl_line'])
+        if lines_of.setdefault(account, line) != line:
+            raise ValueError(f'Account {account} gets GL codes from two P&L lines ({lines_of[account]} and {line}). '
+                             'Add a pl_line column to the GL mapping so each account sits on one line.')
+        rows.append({**r, 'account': account, 'pl_line': line, GL: r['account'], 'gl_name': entry['gl_name']})
+    result = Dataset(rows, dataset.dims, dataset.attrs)
+    for total in aggregate(result, result.dims):
+        for field in AMOUNTS:
+            if total[field] < 0:
+                raise ValueError(f'{line_label(total)}: {field} nets to a negative INR {total[field]:,.2f} after adding up '
+                                 'its GL codes. Credits larger than spend are not supported.')
+    used = [c for c in present if c in gl_map]
+    return result, {'gl_codes': len(used), 'accounts': len({gl_map[c]['account'] for c in used}),
+                    'unused': [c for c in gl_map if c not in set(present)]}
+
+
+def gl_lines(dataset, dims, baseline):
+    """Every GL code at the chosen level (country x dims x account x GL), largest variance first."""
+    groups = {}
+    for r in dataset:
+        if GL not in r:
+            continue
+        key = (r['country'], *(r[d] for d in dims), r['account'], r[GL])
+        g = groups.setdefault(key, {'country': r['country'], **{d: r[d] for d in dims}, 'account': r['account'],
+                                    'pl_line': r['pl_line'], GL: r[GL], 'gl_name': r['gl_name'], 'dims': tuple(dims),
+                                    'actual': Decimal(0), baseline: Decimal(0)})
+        g['actual'] += r['actual']
+        g[baseline] += r[baseline]
+    out = [{**g, **compare(g['actual'], g[baseline], Decimal(0), Decimal(0), is_sales(g))} for g in groups.values()]
+    return sorted(out, key=lambda g: (-abs(g['variance']), g['country'], g[GL]))
+
+
+def gl_detail(dataset, line, baseline):
+    """The GL codes inside one analysed line."""
+    dims = line.get('dims', ())
+    return [g for g in gl_lines(dataset, dims, baseline)
+            if (g['country'], *(g[d] for d in dims), g['account']) == (line['country'], *(line[d] for d in dims), line['account'])]
+
+
+def accounts_in(text):
+    """The distinct account values of a standard-layout CSV, read without validation (for hints on errors)."""
+    try:
+        return sorted({r.get('account', '').strip() for r in csv.DictReader(io.StringIO(text.lstrip('﻿')))} - {''})
+    except csv.Error:
+        return []
+
+
+def looks_like_gl_codes(accounts):
+    """True when most account values are codes (510100, GL-5101, 6100-200) rather than names."""
+    accounts = list(accounts)
+    codes = [a for a in accounts if re.fullmatch(r'[A-Za-z]{0,4}[\s\-_.]?\d[\d\s\-_.]{2,}', a)]
+    return bool(accounts) and len(codes) * 2 >= len(accounts)
 
 
 def merge_datasets(main, extra, name='The sales and P&L file'):
@@ -463,3 +605,57 @@ def sample_pl_csv():
 def sample_cc_master_csv():
     """Includes SG-COR, which has no August rows, to show the completeness check."""
     return _csv((CC, 'country', 'cc_name', 'function', 'owner'), SAMPLE_CC)
+
+
+# Fictional chart of accounts: each reporting account is made of GL codes. (code, name, budget share %,
+# variance share %) split every sample line across its GL codes, so the GL-level demo adds up exactly to the
+# account-level one. 540900 is a credit GL (recharges to a group company), so a GL code can be negative.
+SAMPLE_GL = {
+    'Employee costs': (('510100', 'Salaries and wages', 70, 30), ('510200', 'Bonus and incentives', 15, 60),
+                       ('510300', 'Employer PF and social security', 10, 5), ('510400', 'Staff welfare', 5, 5)),
+    'Travel': (('520100', 'Airfare', 50, 60), ('520200', 'Hotels', 30, 30), ('520300', 'Local conveyance', 20, 10)),
+    'Consulting': (('530100', 'Advisory fees', 50, 80), ('530200', 'Legal fees', 50, 20)),
+    'Warehousing': (('540100', 'Warehouse rent', 70, 20), ('540200', '3PL handling charges', 40, 70),
+                    ('540300', 'Warehouse utilities', 10, 10), ('540900', 'Warehouse recharges to group', -20, 0)),
+    'Distribution': (('550100', 'Outbound freight', 60, 80), ('550200', 'Courier', 25, 10), ('550300', 'Packaging', 15, 10)),
+    'Product sales': (('410100', 'Sales to distributors', 70, 50), ('410200', 'Online sales', 30, 50)),
+    'Cost of goods sold': (('610100', 'Materials consumed', 75, 80), ('610200', 'Freight inward', 15, 15),
+                           ('610300', 'Direct labour', 10, 5)),
+    'Depreciation': (('710100', 'Depreciation: plant and machinery', 70, 50), ('710200', 'Amortisation: software', 30, 50)),
+    'Interest expense': (('720100', 'Interest on term loan', 100, 100),),
+    'Income tax': (('730100', 'Current tax', 90, 90), ('730200', 'Deferred tax', 10, 10)),
+}
+
+
+def _split(total, shares):
+    parts = [total * s // 100 for s in shares]
+    parts[0] += total - sum(parts)  # rounding goes to the first GL code, so the parts add up exactly
+    return parts
+
+
+def _gl_rows(country, cc, account, budget, change):
+    codes = SAMPLE_GL[account]
+    budgets = _split(budget, [c[2] for c in codes])
+    changes, halves = _split(change, [c[3] for c in codes]), _split(change // 2, [c[3] for c in codes])
+    return [('2026-08', country, cc, code, 'INR', b + d, b, b + h)
+            for (code, *_), b, d, h in zip(codes, budgets, changes, halves)]
+
+
+def sample_gl_csv():
+    """The expense sample at GL code level: the account column holds GL codes."""
+    return _csv(('month', 'country', CC, 'account', 'currency', 'actual', 'budget', 'forecast'),
+                [row for line in SAMPLE_LINES for row in _gl_rows(*line)])
+
+
+def sample_gl_pl_csv():
+    """The sales and P&L sample at GL code level. No pl_line column: the GL mapping places each account."""
+    return _csv(('month', 'country', CC, 'account', 'currency', 'actual', 'budget', 'forecast'),
+                [row for country, cc, account, _, budget, change in SAMPLE_PL_LINES
+                 for row in _gl_rows(country, cc, account, budget, change)])
+
+
+def sample_gl_map_csv():
+    lines = {account: line for _, _, account, line, _, _ in SAMPLE_PL_LINES}
+    return _csv((GL, 'gl_name', 'account', 'pl_line'),
+                [(code, name, account, lines.get(account, OPEX))
+                 for account, codes in SAMPLE_GL.items() for code, name, _, _ in codes])

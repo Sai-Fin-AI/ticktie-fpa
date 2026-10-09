@@ -23,6 +23,7 @@ During monthly reporting, FP&A teams reconcile actuals against budget or the lat
 - **Waterfall for any measure.** A dropdown walks budget to actual for EBITDA, Net profit, Gross margin, Sales or Costs, account by account; the CFO deck uses the same choice.
 - **Cost centres and any extra dimension.** Files can carry a `cost_center` column, cost centre details (name, function, owner) and extra columns such as project or region. **Analyse by** chooses the level; removing a level adds its rows up. The demo's 23 cost centre lines reconcile exactly to the 15-row account file.
 - **Cost centre master (optional).** Unknown cost centres and contradicting details stop the file. Cost centres with no data are listed as a completeness check.
+- **GL mapping (optional).** Ledgers that post to many GL codes per account (Travel = airfare, hotels, local conveyance) roll up through a mapping file. The analysis runs on accounts, and the GL codes stay visible: a GL codes view and a drill-down in every line being explained. A GL code missing from the mapping stops the file, and the app offers the mapping back as Excel with the new codes highlighted. Credit GL codes (recharges, recoveries) may be negative. The demo itself is GL-level data: 26 GL codes rolling up into 10 accounts.
 - **Configurable materiality.** The amount **and** percentage thresholds must both be met; zero baselines use the amount only. Cost centre lines and account totals have separate thresholds.
 - **Spread variances.** An account total that is material while no single cost centre is brings every moving line into scope, so each owner explains their share.
 - **Gross vs net.** Roll-ups by account, cost centre, function and any extra dimension show gross movement next to net and flag offsets, e.g. Singapore Employee costs: net INR 0, gross INR 180,000.
@@ -83,6 +84,7 @@ flowchart LR
 | `demo/` | Fictional demo explanations and recorded AI answers; rebuild with `scripts/record_demo.py` |
 | `app.py`, `ai_panel.py` | Streamlit interface |
 | `notes_panel.py` | Bulk explanation entry: editable table and Excel template round-trip |
+| `gl_panel.py` | GL mapping workbook (master export with new codes flagged) and the GL code tables |
 | `fmt.py` | Number style (international or Indian lakh/crore) for screen, commentary and deck |
 | `charts.py` | On-screen waterfall (Altair) |
 | `tests/` | 106 tests: engine, data loading and column mapping, cost centres and roll-ups, evidence, review pack, agents, checker, provider connection and UI. No AI or network needed. |
@@ -141,6 +143,8 @@ Standard columns (combined file or after mapping):
 - Every cell must be filled, and each month/country/cost centre/extra columns/account/currency combination must be unique
 
 **Cost centre master** (optional): `cost_center` plus any of `country`, `cc_name`, `function`, `owner`. Every cost centre in the data must be listed. If the data and the master disagree, the file is stopped rather than guessed.
+
+**GL mapping** (optional, CSV or Excel): `gl_code` and `account` (the reporting account it rolls up to), plus optional `gl_name` and `pl_line`. With a mapping, the data's account column holds GL codes. Every GL code must be mapped; a value that already is a reporting account (for example a budget kept at account level) is kept as it is. All GL codes of an account sit on one P&L line.
 
 ## Calculation rules
 
