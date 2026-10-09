@@ -86,7 +86,7 @@ class DeckBuildTests(unittest.TestCase):
         self.assertEqual(len(deck.slides), 10)
         self.assertAlmostEqual(Emu(deck.slide_width).inches, 13.333, places=2)
         self.assertEqual(result['slides'], 10)
-        self.assertIn('Expense variance review: 2026-08', texts[0])
+        self.assertIn('Expense variance review\nAugust 2026', texts[0])
         self.assertIn(self.pack['content_hash'][:12], texts[0])
         self.assertIn('Distribution adds INR 340,000', texts[2])
         charts = [s for s in deck.slides[2].shapes if s.has_chart]
@@ -156,6 +156,10 @@ class DeckAppTests(unittest.TestCase):
         self.assertEqual(len(Presentation(io.BytesIO(deck['pptx'])).slides), 10)
         self.assertTrue(any('CFO deck' in x.value and '10 slides' in x.value for x in app.markdown))
         self.assertIn('✔ Tick-and-tie passed', app.session_state['ai_commentary']['html'])
+        next(r for r in app.radio if r.label == 'Deck headlines').set_value('Standard, written by the engine').run()
+        button('Draft CFO commentary and deck').click().run()
+        self.assertEqual(app.session_state['ai_deck']['source'], 'standard titles')
+        self.assertNotIn('error', app.session_state['ai_commentary'])
 
     def test_deck_only_button_needs_no_ai(self):
         app = AppTest.from_file(str(APP), default_timeout=60).run()

@@ -8,6 +8,7 @@ import io
 import json
 import math
 import re
+from datetime import datetime
 from decimal import Decimal
 
 from pptx import Presentation
@@ -16,6 +17,8 @@ from pptx.dml.color import RGBColor
 from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION, XL_LEGEND_POSITION
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.oxml.ns import qn
+from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
 
 from agents import inr, material_lines, owner, pct_text
@@ -23,9 +26,14 @@ from checker import allowed_figures, internal_codes, misattributed_figures, unsu
 from llm import AIError
 from pack import load_pack, open_reason, pack_json
 
-NAVY, BLUE, RED, GREEN = RGBColor(0x0B, 0x3B, 0x8C), RGBColor(0x17, 0x5C, 0xD3), RGBColor(0xB4, 0x23, 0x18), RGBColor(0x02, 0x7A, 0x48)
-AMBER, GREY, INK, WHITE = RGBColor(0xB5, 0x47, 0x08), RGBColor(0x66, 0x70, 0x85), RGBColor(0x10, 0x18, 0x28), RGBColor(0xFF, 0xFF, 0xFF)
-LIGHT, LINE = RGBColor(0xF5, 0xF7, 0xFB), RGBColor(0xE4, 0xE9, 0xF2)
+# Navy dominates; teal is the accent; red/green/amber carry meaning only (overspend, underspend, open).
+NAVY, NAVY_SOFT, NAVY_LINE = RGBColor.from_string('13294B'), RGBColor.from_string('1E3A63'), RGBColor.from_string('3A5680')
+INK, SLATE, MUTED = RGBColor.from_string('1B2433'), RGBColor.from_string('56637A'), RGBColor.from_string('8A96A8')
+MIST, RULE, WHITE, ICE = RGBColor.from_string('F1F4F8'), RGBColor.from_string('D9DFE7'), RGBColor.from_string('FFFFFF'), RGBColor.from_string('C9D6E8')
+TEAL, TEAL_LIGHT = RGBColor.from_string('0F766E'), RGBColor.from_string('5EC4B6')
+RED, GREEN, AMBER = RGBColor.from_string('B42318'), RGBColor.from_string('067647'), RGBColor.from_string('B54708')
+RED_LIGHT, GREEN_LIGHT = RGBColor.from_string('FF8A80'), RGBColor.from_string('6EE7B7')
+FONT = 'Calibri'
 KEYS = ('summary', 'bridge', 'top', 'heatmap', 'offsets', 'owners', 'outlook')
 TIMINGS = ('One-off', 'Recurring', 'Timing difference', 'Unknown')
 
@@ -195,66 +203,125 @@ def draft_headlines(pack, client):
     return headlines, summary, issues, f'AI ({client.label}), tick-and-tied'
 
 
+
 # ---------- drawing helpers ----------
 
-def _text(slide, x, y, w, h, text, size=14, bold=False, color=INK, align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP):
+def _text(slide, x, y, w, h, text, size=14, bold=False, color=INK, align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP,
+          spacing=None, after=6, font=FONT):
+    """`text` is a string or a list of lines; a line may be a list of (text, {size, bold, color}) runs."""
     box = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
     frame = box.text_frame
     frame.word_wrap, frame.vertical_anchor = True, anchor
-    frame.margin_left = frame.margin_right = Inches(0.05)
+    frame.margin_left = frame.margin_right = frame.margin_top = frame.margin_bottom = 0
     lines = text if isinstance(text, list) else [text]
     for i, line in enumerate(lines):
         para = frame.paragraphs[0] if i == 0 else frame.add_paragraph()
-        para.alignment = align
-        run = para.add_run()
-        run.text = line
-        run.font.size, run.font.bold, run.font.color.rgb, run.font.name = Pt(size), bold, color, 'Segoe UI'
-        para.space_after = Pt(6)
+        para.alignment, para.space_after = align, Pt(after)
+        for part, style in (line if isinstance(line, list) else [(line, {})]):
+            run = para.add_run()
+            run.text = part
+            run.font.size, run.font.bold = Pt(style.get('size', size)), style.get('bold', bold)
+            run.font.color.rgb, run.font.name = style.get('color', color), font
+            if spacing:
+                run.font._element.set('spc', str(spacing))
     return box
 
 
-def _rect(slide, x, y, w, h, fill, shape=MSO_SHAPE.RECTANGLE):
+def _rect(slide, x, y, w, h, fill, shape=MSO_SHAPE.RECTANGLE, radius=0.06):
     item = slide.shapes.add_shape(shape, Inches(x), Inches(y), Inches(w), Inches(h))
     item.fill.solid()
     item.fill.fore_color.rgb = fill
     item.line.fill.background()
     item.shadow.inherit = False
+    if shape == MSO_SHAPE.ROUNDED_RECTANGLE:
+        item.adjustments[0] = radius
     return item
+
+
+def _badge(slide, x, y, size, fill, text, font_size=13, color=WHITE):
+    """Filled circle with a number or symbol: the deck's repeating motif."""
+    circle = _rect(slide, x, y, size, size, fill, MSO_SHAPE.OVAL)
+    frame = circle.text_frame
+    frame.margin_left = frame.margin_right = frame.margin_top = frame.margin_bottom = 0
+    frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+    para = frame.paragraphs[0]
+    para.alignment = PP_ALIGN.CENTER
+    run = para.add_run()
+    run.text = text
+    run.font.size, run.font.bold, run.font.color.rgb, run.font.name = Pt(font_size), True, color, FONT
+    return circle
+
+
+def _kicker(slide, x, y, w, text, color=TEAL):
+    return _text(slide, x, y, w, 0.3, text.upper(), size=10.5, bold=True, color=color, spacing=120)
 
 
 def _slide(deck, kicker, headline, footer):
     slide = deck.slides.add_slide(deck.slide_layouts[6])
-    _rect(slide, 0, 0, 13.333, 0.12, BLUE)
-    _text(slide, 0.6, 0.35, 12, 0.35, kicker.upper(), size=11, bold=True, color=BLUE)
-    _text(slide, 0.6, 0.65, 12.1, 0.9, headline, size=24, bold=True, color=INK)
-    _rect(slide, 0.6, 7.0, 12.13, 0.01, LINE)
-    _text(slide, 0.6, 7.05, 10.5, 0.3, footer, size=9, color=GREY)
-    _text(slide, 11.7, 7.05, 1.0, 0.3, str(len(deck.slides)), size=9, color=GREY, align=PP_ALIGN.RIGHT)
+    _kicker(slide, 0.6, 0.45, 12, kicker)
+    _text(slide, 0.6, 0.75, 12.13, 1.0, headline, size=26, bold=True, color=NAVY, after=0)
+    _text(slide, 0.6, 7.02, 11.0, 0.25, footer, size=8.5, color=MUTED)
+    _text(slide, 11.73, 7.02, 1.0, 0.25, str(len(deck.slides)), size=9, bold=True, color=SLATE, align=PP_ALIGN.RIGHT)
     return slide
 
 
-def _table(slide, x, y, w, header, rows, widths, row_h=0.36, size=11, fills=None, colours=None):
+def _border(cell, sides):
+    """Cell borders: `sides` maps L/R/T/B to (colour, points); a missing side has no line."""
+    tcPr = cell._tc.get_or_add_tcPr()
+    tags = ('a:lnL', 'a:lnR', 'a:lnT', 'a:lnB')
+    for tag in tags:
+        for old in tcPr.findall(qn(tag)):
+            tcPr.remove(old)
+    for i, (tag, side) in enumerate(zip(tags, 'LRTB')):
+        line = OxmlElement(tag)
+        if side in sides:
+            colour, points = sides[side]
+            line.set('w', str(int(Pt(points))))
+            fill = OxmlElement('a:solidFill')
+            rgb = OxmlElement('a:srgbClr')
+            rgb.set('val', str(colour))
+            fill.append(rgb)
+            line.append(fill)
+        else:
+            line.append(OxmlElement('a:noFill'))
+        tcPr.insert(i, line)
+
+
+NUMERIC = re.compile(r'[+−-]?[\d,]+(\.\d+)?[%km]?|N/A|–')
+
+
+def _table(slide, x, y, w, header, rows, widths, row_h=0.4, size=12, fills=None, colours=None, bolds=None):
+    """Clean table: white rows, hairline rules, no vertical lines; numbers right-aligned."""
     shape = slide.shapes.add_table(len(rows) + 1, len(header), Inches(x), Inches(y), Inches(w), Inches(row_h * (len(rows) + 1)))
     table = shape.table
+    table.first_row = table.horz_banding = False
+    numeric = [c > 0 and bool(rows) and all(NUMERIC.fullmatch(str(r[c])) or str(r[c]) == '·' for r in rows)
+               for c in range(len(header))]
     for i, width in enumerate(widths):
         table.columns[i].width = Inches(width)
     for r, values in enumerate([header] + rows):
+        table.rows[r].height = Inches(row_h)
         for c, value in enumerate(values):
             cell = table.cell(r, c)
             cell.text = str(value)
-            cell.margin_left = cell.margin_right = Inches(0.06)
+            cell.margin_left = cell.margin_right = Inches(0.08)
+            cell.margin_top = cell.margin_bottom = Inches(0.03)
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
             para = cell.text_frame.paragraphs[0]
-            para.alignment = (PP_ALIGN.RIGHT if c and re.fullmatch(r'[+−-]?[\d,]+(\.\d+)?[%km]?|N/A', str(value)) else
-                              PP_ALIGN.CENTER if str(value) == '·' else PP_ALIGN.LEFT)
+            para.alignment = (PP_ALIGN.CENTER if str(value) == '·' else PP_ALIGN.RIGHT if numeric[c] else PP_ALIGN.LEFT)
             font = para.runs[0].font if para.runs else para.font
-            font.size, font.name = Pt(size), 'Segoe UI'
+            font.name = FONT
             cell.fill.solid()
             if r == 0:
-                cell.fill.fore_color.rgb, font.bold, font.color.rgb = NAVY, True, WHITE
+                cell.fill.fore_color.rgb = WHITE
+                font.size, font.bold, font.color.rgb = Pt(size - 2), True, SLATE
+                _border(cell, {'B': (NAVY, 1.5)})
             else:
-                cell.fill.fore_color.rgb = (fills(r - 1, c) if fills else None) or (LIGHT if r % 2 == 0 else WHITE)
+                cell.fill.fore_color.rgb = (fills(r - 1, c) if fills else None) or WHITE
+                font.size = Pt(size)
                 font.color.rgb = (colours(r - 1, c) if colours else None) or INK
+                font.bold = bool(bolds(r - 1, c)) if bolds else False
+                _border(cell, {'B': (RULE, 0.75)})
     return table
 
 
@@ -269,30 +336,49 @@ def _status(line):
     return {'Confirmed by reviewer': 'Confirmed', 'Unconfirmed': 'Unconfirmed'}.get(line['note']['status'], 'Conflicting')
 
 
+STATUS_COLOUR = {'Confirmed': GREEN, 'Unconfirmed': AMBER, 'Conflicting': RED, 'Pending': MUTED}
+
+
 def _signed(value):
     value = _d(value)
     return f"{'+' if value > 0 else '−' if value < 0 else ''}{abs(value):,.0f}"
 
 
-def _label(point, text, colour, position):
+def _tone(value):
+    return RED if _d(value) > 0 else GREEN if _d(value) < 0 else SLATE
+
+
+def _label(point, text, colour, position, size=12):
     label = point.data_label
     label.has_text_frame = True
     label.text_frame.text = text
     run = label.text_frame.paragraphs[0].runs[0]
-    run.font.size, run.font.bold, run.font.color.rgb = Pt(11), True, colour
+    run.font.size, run.font.bold, run.font.color.rgb, run.font.name = Pt(size), True, colour, FONT
     label.position = position
 
 
-def _tidy(chart):
-    """Light gridlines, no chart title, grey axis labels."""
+def _tidy(chart, value_axis=True):
+    """One look for every chart: no title, quiet axes, faint gridlines, deck font."""
     chart.has_title = False
+    chart.font.name, chart.font.size, chart.font.color.rgb = FONT, Pt(11), SLATE
     axis = chart.value_axis
-    axis.has_major_gridlines = True
-    axis.major_gridlines.format.line.color.rgb = LINE
-    axis.format.line.fill.background()
-    axis.tick_labels.font.size, axis.tick_labels.font.color.rgb = Pt(10), GREY
+    axis.visible = value_axis
+    axis.has_major_gridlines = value_axis
+    if value_axis:
+        axis.major_gridlines.format.line.color.rgb = RULE
+        axis.format.line.fill.background()
+        axis.tick_labels.font.size, axis.tick_labels.font.color.rgb = Pt(10), MUTED
     chart.category_axis.tick_labels.font.size = Pt(11)
-    chart.category_axis.format.line.color.rgb = LINE
+    chart.category_axis.tick_labels.font.color.rgb = INK
+    chart.category_axis.format.line.color.rgb = RULE
+    chart.category_axis.has_major_gridlines = False
+
+
+def _colour_series(chart, colours):
+    for series, colour in zip(chart.series, colours):
+        series.format.fill.solid()
+        series.format.fill.fore_color.rgb = colour
+        series.format.line.fill.background()
 
 
 def _pct(line):
@@ -303,39 +389,81 @@ def _plain(value):
     return f'{abs(_d(value)):,.0f}'
 
 
+def _bar(slide, x, y, w, h, parts):
+    """Horizontal 100% bar from (value, colour) parts; returns the drawn shares."""
+    total = sum(v for v, _ in parts if v > 0)
+    left, shares = x, []
+    for value, colour in parts:
+        share = float(value / total) if total and value > 0 else 0.0
+        if share:
+            _rect(slide, left, y, w * share, h, colour)
+        left += w * share
+        shares.append(share)
+    if not total:
+        _rect(slide, x, y, w, h, RULE)
+    return shares
+
+
 # ---------- slides ----------
 
 def _title_slide(deck, pack, source):
     slide = deck.slides.add_slide(deck.slide_layouts[6])
+    t, s = pack['totals'], pack['summary']
     _rect(slide, 0, 0, 13.333, 7.5, NAVY)
-    _rect(slide, 0, 5.2, 13.333, 2.3, BLUE)
-    _text(slide, 0.8, 1.6, 11.5, 0.4, 'MONTH-END CLOSE · CFO REVIEW', size=14, bold=True, color=RGBColor(0xB2, 0xCC, 0xFF))
-    _text(slide, 0.8, 2.1, 11.5, 1.4, f"Expense variance review: {pack['period']}", size=40, bold=True, color=WHITE)
+    _kicker(slide, 0.8, 1.55, 7.5, 'Month-end close · CFO review', color=TEAL_LIGHT)
+    month = datetime.strptime(pack['period'], '%Y-%m').strftime('%B %Y')
+    _text(slide, 0.8, 1.95, 7.6, 2.0, ['Expense variance review', [(month, {'color': TEAL_LIGHT, 'size': 32})]],
+          size=40, bold=True, color=WHITE, after=0)
     level = ' × '.join(['Country'] + [d.replace('_', ' ').title() for d in pack['grain']] + ['Account'])
-    _text(slide, 0.8, 3.4, 11.5, 0.6, f"Actual vs {pack['basis']} · {pack['scope']} · {level} · {pack['currency']}", size=18, color=WHITE)
-    _text(slide, 0.8, 5.6, 11.8, 1.2, [f"Locked review pack {pack['content_hash'][:12]} · locked {pack.get('locked_at', 'not locked')} UTC",
-                                       f'Figures and charts are drawn from the pack. Headlines: {source}. Explanations are reviewer-supplied.'],
-          size=13, color=WHITE)
+    _text(slide, 0.8, 4.0, 7.6, 0.9, [f"Actual vs {pack['basis']} · {pack['scope']}", f"{level} · {pack['currency']}"],
+          size=16, color=ICE, after=2)
+    # headline number panel
+    _rect(slide, 8.85, 1.55, 3.88, 3.35, NAVY_SOFT, MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.05)
+    _kicker(slide, 9.2, 1.85, 3.3, f"Net variance vs {pack['basis']}", color=TEAL_LIGHT)
+    _text(slide, 9.2, 2.2, 3.4, 0.8, _signed(t['variance']), size=38, bold=True,
+          color=RED_LIGHT if _d(t['variance']) > 0 else GREEN_LIGHT, after=0)
+    _text(slide, 9.2, 2.95, 3.4, 0.35, f"INR · {t['direction']} · {_pct(t)}", size=13, color=ICE)
+    share = explained_share(pack)
+    _text(slide, 9.2, 3.55, 3.4, 0.3, 'EXPLAINED (CONFIRMED)', size=10, bold=True, color=ICE, spacing=100)
+    _bar(slide, 9.2, 3.9, 3.2, 0.14, [(Decimal(str(share or 0)), TEAL_LIGHT), (Decimal(100) - Decimal(str(share or 0)), NAVY_LINE)])
+    _text(slide, 9.2, 4.15, 3.4, 0.35, f"{share:.0f}% · {s['open_items']} open items" if share is not None else 'No material movements',
+          size=12, color=ICE)
+    _text(slide, 0.8, 6.15, 11.9, 0.8,
+          [f"Locked review pack {pack['content_hash'][:12]} · locked {pack.get('locked_at', 'not locked')} UTC",
+           f'Figures and charts are drawn from the pack by code. Headlines: {source}. Explanations are reviewer-supplied.'],
+          size=10.5, color=ICE, after=3)
 
 
 def _summary_slide(deck, pack, headline, bullets, footer):
     slide = _slide(deck, 'Executive summary', headline, footer)
     t, s = pack['totals'], pack['summary']
     share = explained_share(pack)
-    tiles = [('Actual · INR', _plain(t['actual']), '', INK), (pack['basis'].title() + ' · INR', _plain(t['baseline']), '', INK),
-             ('Net variance · INR', _signed(t['variance']), f"{t['direction']} · {_pct(t)}",
-              RED if _d(t['variance']) > 0 else GREEN),
-             ('Explained', f'{share:.0f}%' if share is not None else '–', f"{_whole(s['explained'])} confirmed", BLUE),
-             ('Open items', str(s['open_items']), f"{_whole(s['unexplained'])} unexplained", AMBER if s['open_items'] else GREEN)]
+    tiles = [('Actual', _plain(t['actual']), 'INR', INK),
+             (pack['basis'].title(), _plain(t['baseline']), 'INR', INK),
+             ('Net variance', _signed(t['variance']), f"INR · {t['direction']} · {_pct(t)}", _tone(t['variance'])),
+             ('Explained', f'{share:.0f}%' if share is not None else '–', 'confirmed share of movement', TEAL),
+             ('Open items', str(s['open_items']), f"across {s['material']} lines to explain", AMBER if s['open_items'] else GREEN)]
+    width, gap = 2.226, 0.25
     for i, (label, value, sub, colour) in enumerate(tiles):
-        x = 0.6 + i * 2.46
-        _rect(slide, x, 1.75, 2.3, 1.45, LIGHT, MSO_SHAPE.ROUNDED_RECTANGLE)
-        _rect(slide, x, 1.75, 0.08, 1.45, colour)
-        _text(slide, x + 0.2, 1.85, 2.0, 0.3, label.upper(), size=10, bold=True, color=GREY)
-        _text(slide, x + 0.2, 2.15, 2.05, 0.55, value, size=20, bold=True, color=colour)
-        _text(slide, x + 0.2, 2.7, 2.05, 0.4, sub, size=10, color=GREY)
-    _text(slide, 0.6, 3.6, 12, 0.4, 'KEY MESSAGES', size=11, bold=True, color=BLUE)
-    _text(slide, 0.6, 4.0, 12.1, 2.8, [f'•  {b}' for b in bullets], size=17, color=INK)
+        x = 0.6 + i * (width + gap)
+        _rect(slide, x, 1.95, width, 1.55, MIST, MSO_SHAPE.ROUNDED_RECTANGLE)
+        _text(slide, x + 0.22, 2.12, width - 0.4, 0.3, label.upper(), size=10, bold=True, color=SLATE, spacing=100)
+        _text(slide, x + 0.22, 2.42, width - 0.3, 0.6, value, size=26, bold=True, color=colour, after=0)
+        _text(slide, x + 0.22, 3.05, width - 0.35, 0.35, sub, size=10.5, color=SLATE)
+    _kicker(slide, 0.6, 3.95, 7, 'Key messages')
+    for i, bullet in enumerate(bullets):
+        y = 4.35 + i * 0.82
+        _badge(slide, 0.6, y, 0.42, NAVY, str(i + 1))
+        _text(slide, 1.25, y + 0.04, 6.75, 0.75, bullet, size=15, color=INK, anchor=MSO_ANCHOR.TOP)
+    # coverage panel
+    _rect(slide, 8.45, 3.95, 4.28, 2.85, MIST, MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.04)
+    _kicker(slide, 8.7, 4.15, 3.9, 'Coverage of material movement')
+    explained, unexplained = _d(s['explained']), _d(s['unexplained'])
+    _bar(slide, 8.7, 4.6, 3.78, 0.3, [(explained, TEAL), (unexplained, AMBER)])
+    _text(slide, 8.7, 5.1, 3.8, 1.6, [
+        [('■  ', {'color': TEAL, 'size': 14}), ('Confirmed  ', {'bold': True}), (_whole(explained), {})],
+        [('■  ', {'color': AMBER, 'size': 14}), ('Unexplained  ', {'bold': True}), (_whole(unexplained), {})],
+        [(f"{s['open_items']} open item(s) to close before the review", {'color': SLATE, 'size': 11})]], size=13, after=8)
 
 
 def _bridge_slide(deck, pack, headline, footer):
@@ -358,17 +486,18 @@ def _bridge_slide(deck, pack, headline, footer):
     data.categories = cats
     for name, values in (('Base', base), ('Total', total), ('Increase', up), ('Decrease', down)):
         data.add_series(name, values)
-    chart = slide.shapes.add_chart(XL_CHART_TYPE.COLUMN_STACKED, Inches(0.6), Inches(1.7), Inches(8.6), Inches(5.1), data).chart
+    chart = slide.shapes.add_chart(XL_CHART_TYPE.COLUMN_STACKED, Inches(0.5), Inches(1.95), Inches(8.3), Inches(4.75), data).chart
     chart.has_legend = False
     plot = chart.plots[0]
-    plot.gap_width, plot.overlap = 45, 100
+    plot.gap_width, plot.overlap = 55, 100
     series_list = list(chart.series)
     base_series = series_list[0]
     base_series.format.fill.background()
     base_series.format.line.fill.background()
-    for series, colour in zip(series_list[1:], (BLUE, RED, GREEN)):
+    for series, colour in zip(series_list[1:], (NAVY, RED, GREEN)):
         series.format.fill.solid()
         series.format.fill.fore_color.rgb = colour
+        series.format.line.fill.background()
     for i in range(len(cats)):
         if total[i]:  # start and end bars: amount inside, white
             _label(series_list[1].points[i], f'{total[i] / 1e6:.2f}m', WHITE, XL_LABEL_POSITION.INSIDE_END)
@@ -379,29 +508,40 @@ def _bridge_slide(deck, pack, headline, footer):
     step = Decimal(10) ** int(math.floor(math.log10(float(span))))
     axis = chart.value_axis
     axis.minimum_scale = float(max(Decimal(0), ((low - span * Decimal('0.6')) / step).to_integral_value(rounding='ROUND_FLOOR') * step))
-    axis.maximum_scale = float(((high + span * Decimal('0.25')) / step).to_integral_value(rounding='ROUND_CEILING') * step)
-    _tidy(chart)
-    axis.tick_labels.number_format, axis.tick_labels.number_format_is_linked = '#,##0.0,,"m"', False
-    chart.category_axis.tick_labels.font.size = Pt(11)
-    _text(slide, 0.6, 6.75, 8.6, 0.3, f'INR millions. The axis starts at {axis.minimum_scale / 1e6:.1f}m, not zero, so movements are visible.',
-          size=9, color=GREY)
-    rows = [[a, _signed(v), 'Unfavorable' if v > 0 else 'Favorable'] for a, v in steps]
-    _table(slide, 9.5, 1.75, 3.25, ['Account', 'INR', 'Outcome'], rows, [1.35, 1.0, 0.9], size=10,
-           colours=lambda r, c: (RED if steps[r][1] > 0 else GREEN) if c else None)
+    axis.maximum_scale = float(((high + span * Decimal('0.15')) / step).to_integral_value(rounding='ROUND_CEILING') * step)
+    _tidy(chart, value_axis=False)
+    _text(slide, 0.6, 6.68, 8.2, 0.25, f'INR millions. Bars start at {axis.minimum_scale / 1e6:.1f}m, not zero, so movements are visible.',
+          size=9, color=MUTED)
+    # what moved
+    _rect(slide, 9.1, 1.95, 3.63, 4.9, MIST, MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.04)
+    _kicker(slide, 9.35, 2.15, 3.2, 'What moved')
+    shown = steps[:5]
+    for i, (account, value) in enumerate(shown):
+        y = 2.6 + i * 0.68
+        _text(slide, 9.35, y, 1.95, 0.6, [account, [('Unfavorable' if value > 0 else 'Favorable', {'size': 10, 'color': SLATE})]],
+              size=13, bold=True, color=INK, after=0)
+        _text(slide, 11.1, y, 1.4, 0.4, _signed(value), size=15, bold=True, color=_tone(value), align=PP_ALIGN.RIGHT)
+    y = 2.6 + len(shown) * 0.68 + 0.1
+    _text(slide, 9.35, y, 1.95, 0.4, 'Net variance', size=13, bold=True, color=NAVY)
+    _text(slide, 11.1, y, 1.4, 0.4, _signed(pack['totals']['variance']), size=15, bold=True,
+          color=_tone(pack['totals']['variance']), align=PP_ALIGN.RIGHT)
+    if len(steps) > len(shown):
+        _text(slide, 9.35, y + 0.45, 3.2, 0.3, f'{len(steps) - len(shown)} smaller account(s) in the chart only', size=10, color=SLATE)
 
 
 def _top_slide(deck, pack, headline, footer):
     slide = _slide(deck, 'Largest movements', headline, footer)
     lines = material_lines(pack)[:9]
-    rows = [[l['label'], owner(l) if l['attrs'].get('owner') else '–', _signed(l['variance']), _pct(l),
-             _status(l), _plain(l['unexplained'])] for _, l in lines]
-    status_colour = {'Confirmed': GREEN, 'Unconfirmed': AMBER, 'Conflicting': RED, 'Pending': GREY}
-    _table(slide, 0.6, 1.75, 12.13, ['Line', 'Owner', 'Variance INR', '%', 'Status', 'Unexplained INR'], rows,
-           [4.6, 1.9, 1.6, 1.4, 1.3, 1.33], row_h=0.42, size=12,
-           colours=lambda r, c: (RED if _d(lines[r][1]['variance']) > 0 else GREEN) if c == 2
-           else status_colour[rows[r][4]] if c == 4 else AMBER if c == 5 and rows[r][5] != '0' else None)
     if not lines:
-        _text(slide, 0.6, 2.4, 12, 0.5, 'No line meets the materiality thresholds.', size=16, color=GREY)
+        _text(slide, 0.6, 2.4, 12, 0.5, 'No line meets the materiality thresholds.', size=16, color=SLATE)
+        return
+    rows = [[l['label'], owner(l) if l['attrs'].get('owner') else '–', _signed(l['variance']), _pct(l),
+             '● ' + _status(l), _plain(l['unexplained'])] for _, l in lines]
+    _table(slide, 0.6, 1.95, 12.13, ['LINE', 'OWNER', 'VARIANCE INR', '%', 'STATUS', 'UNEXPLAINED INR'], rows,
+           [4.55, 1.95, 1.6, 1.0, 1.6, 1.43], row_h=0.47, size=12,
+           colours=lambda r, c: (_tone(lines[r][1]['variance']) if c == 2 else STATUS_COLOUR[_status(lines[r][1])] if c == 4
+                                 else AMBER if c == 5 and rows[r][5] != '0' else MUTED if c == 5 else None),
+           bolds=lambda r, c: c in (0, 2))
 
 
 def _heatmap_slide(deck, pack, headline, footer):
@@ -409,10 +549,11 @@ def _heatmap_slide(deck, pack, headline, footer):
     accounts = list(dict.fromkeys(l['account'] for l in pack['lines']))
     names = list(dict.fromkeys(l['label'].rsplit(' | ', 1)[0] for l in pack['lines']))
     cells = {(l['label'].rsplit(' | ', 1)[0], l['account']): l for l in pack['lines']}
-    shown = names[:12]
+    shown = names[:11]
     peak = max((abs(_d(l['variance'])) for l in pack['lines']), default=Decimal(1)) or Decimal(1)
-    rows = [[n] + [_compact(cells[(n, a)]['variance']) if (n, a) in cells else '·' for a in accounts]
-            + [_compact(sum((_d(cells[(n, a)]['variance']) for a in accounts if (n, a) in cells), Decimal(0)))] for n in shown]
+    nets = {n: sum((_d(cells[(n, a)]['variance']) for a in accounts if (n, a) in cells), Decimal(0)) for n in shown}
+    rows = [[n] + [_compact(cells[(n, a)]['variance']) if (n, a) in cells else '·' for a in accounts] + [_compact(nets[n])]
+            for n in shown]
 
     def fill(r, c):
         if c == 0 or c > len(accounts):
@@ -421,25 +562,30 @@ def _heatmap_slide(deck, pack, headline, footer):
         if not line or not _d(line['variance']):
             return WHITE
         value = _d(line['variance'])
-        return _blend(RED if value > 0 else GREEN, 0.15 + 0.7 * float(abs(value) / peak))
+        return _blend(RED if value > 0 else GREEN, 0.1 + 0.75 * float(abs(value) / peak))
 
     def colour(r, c):
+        if c == len(accounts) + 1:
+            return _tone(nets[shown[r]])
         line = cells.get((shown[r], accounts[c - 1])) if 0 < c <= len(accounts) else None
-        if line and abs(_d(line['variance'])) / peak > Decimal('0.55'):
+        if line and abs(_d(line['variance'])) / peak > Decimal('0.5'):
             return WHITE
-        return None
+        return MUTED if line is None and c else None
 
-    table = _table(slide, 0.6, 1.75, 12.13, ['Line'] + accounts + ['Net'], rows,
-                   [3.6] + [round(7.6 / len(accounts), 2)] * len(accounts) + [0.93], row_h=0.38, size=11, fills=fill, colours=colour)
-    for r, name in enumerate(shown, 1):
-        for c, account in enumerate(accounts, 1):
-            line = cells.get((name, account))
-            if line and line['material']:
-                table.cell(r, c).text_frame.paragraphs[0].runs[0].font.bold = True
-    note = 'Red = overspend, green = underspend, darker = larger; bold = needs explanation; · = no data. INR.'
+    def bold(r, c):
+        line = cells.get((shown[r], accounts[c - 1])) if 0 < c <= len(accounts) else None
+        return (line and line['material']) or c == len(accounts) + 1
+
+    _table(slide, 0.6, 1.95, 12.13, ['LINE'] + [a.upper() for a in accounts] + ['NET'], rows,
+           [3.5] + [round(7.48 / len(accounts), 2)] * len(accounts) + [1.15], row_h=0.4, size=11.5,
+           fills=fill, colours=colour, bolds=bold)
+    legend_y = 1.95 + 0.4 * (len(rows) + 1) + 0.2
+    _rect(slide, 0.6, legend_y + 0.04, 0.22, 0.16, _blend(RED, 0.6))
+    _rect(slide, 0.85, legend_y + 0.04, 0.22, 0.16, _blend(GREEN, 0.6))
+    note = 'Overspend / underspend; darker = larger · bold = needs explanation · a dot means no data · INR'
     if len(names) > len(shown):
-        note += f' Showing {len(shown)} of {len(names)} rows; the appendix lists every line needing explanation.'
-    _text(slide, 0.6, 6.6, 12, 0.3, note, size=9, color=GREY)
+        note += f' · showing {len(shown)} of {len(names)} rows; the appendix lists every line needing explanation'
+    _text(slide, 1.2, legend_y, 11.5, 0.3, note, size=10, color=SLATE)
 
 
 def _offsets_slide(deck, pack, headline, footer):
@@ -447,76 +593,91 @@ def _offsets_slide(deck, pack, headline, footer):
     entries = [e for e in pack.get('rollups', {}).get('account', []) if e['flags']][:6]
     if not entries:
         _text(slide, 0.6, 2.2, 12, 0.6, 'No account total hides offsetting lines or a spread variance at the current thresholds.',
-              size=16, color=GREY)
+              size=16, color=SLATE)
         return
     data = CategoryChartData()
     shown = entries[::-1]  # bar charts draw the first category at the bottom
     data.categories = [e['label'] for e in shown]
-    data.add_series('Net movement', [float(abs(_d(e['net']))) for e in shown])
+    # bar charts also draw the first series at the bottom: gross first puts net on top in each pair
     data.add_series('Gross movement', [float(_d(e['gross'])) for e in shown])
-    chart = slide.shapes.add_chart(XL_CHART_TYPE.BAR_CLUSTERED, Inches(0.6), Inches(1.7), Inches(7.4), Inches(5.0), data).chart
-    chart.has_legend, chart.legend.position, chart.legend.include_in_layout = True, XL_LEGEND_POSITION.BOTTOM, False
-    chart.legend.font.size = Pt(11)
-    for series, colour in zip(chart.series, (BLUE, AMBER)):
-        series.format.fill.solid()
-        series.format.fill.fore_color.rgb = colour
+    data.add_series('Net movement', [float(abs(_d(e['net']))) for e in shown])
+    chart = slide.shapes.add_chart(XL_CHART_TYPE.BAR_CLUSTERED, Inches(0.5), Inches(1.95), Inches(7.3), Inches(4.85), data).chart
+    chart.has_legend, chart.legend.position, chart.legend.include_in_layout = True, XL_LEGEND_POSITION.TOP, False
+    chart.legend.font.size, chart.legend.font.name = Pt(11), FONT
+    _colour_series(chart, (AMBER, NAVY))
     plot = chart.plots[0]
+    plot.gap_width, plot.overlap = 60, -10
     plot.has_data_labels = True
-    plot.data_labels.font.size, plot.data_labels.number_format, plot.data_labels.number_format_is_linked = Pt(10), '#,##0,"k"', False
-    _tidy(chart)
-    chart.value_axis.tick_labels.number_format, chart.value_axis.tick_labels.number_format_is_linked = '#,##0,"k"', False
-    notes = []
-    for e in entries:
-        if 'Offsetting movements' in e['flags']:
-            notes.append(f"⇅ {e['label']}: net {_signed(e['net'])}, gross {_d(e['gross']):,.0f}; "
-                         f"offsetting lines hide {_d(e['hidden']):,.0f}.")
-        if 'Material in total only' in e['flags']:
-            notes.append(f"Σ {e['label']}: material in total, but no single line crosses the threshold, so every owner explains their share.")
-    _text(slide, 8.3, 1.8, 4.45, 5.0, notes, size=13, color=INK)
+    labels = plot.data_labels
+    labels.font.size, labels.font.bold, labels.font.name = Pt(11), True, FONT
+    labels.number_format, labels.number_format_is_linked, labels.position = '#,##0,"k"', False, XL_LABEL_POSITION.OUTSIDE_END
+    _tidy(chart, value_axis=False)
+    y = 1.95
+    for e in entries[:4]:
+        offset = 'Offsetting movements' in e['flags']
+        body = (f"Net {_signed(e['net'])}, gross {_d(e['gross']):,.0f}: offsetting lines hide {_d(e['hidden']):,.0f}." if offset
+                else 'Material in total, but no single line crosses the threshold, so every owner explains their share.')
+        _rect(slide, 8.1, y, 4.63, 1.13, MIST, MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.06)
+        _badge(slide, 8.28, y + 0.18, 0.4, AMBER if offset else TEAL, '⇅' if offset else 'Σ', font_size=14)
+        _text(slide, 8.85, y + 0.14, 3.75, 0.9, [e['label'], [(body, {'size': 11, 'bold': False, 'color': SLATE})]],
+              size=13, bold=True, color=INK, after=2)
+        y += 1.25
 
 
 def _owners_slide(deck, pack, headline, footer):
     slide = _slide(deck, 'Open items by owner', headline, footer)
-    owners = owner_table(pack)
-    rows = [[name, str(v['lines']), _plain(v['open']), '; '.join(f'{n} × {why.lower()}' for why, n in v['reasons'].items())]
-            for name, v in owners[:10]]
-    if not rows:
+    owners = owner_table(pack)[:8]
+    if not owners:
         _text(slide, 0.6, 2.2, 12, 0.6, 'Every line that needs an explanation has a confirmed one.', size=16, color=GREEN)
         return
-    _table(slide, 0.6, 1.75, 12.13, ['Owner', 'Open lines', 'Unexplained INR', 'Why open'], rows, [2.6, 1.4, 1.9, 6.23],
-           row_h=0.42, size=12, colours=lambda r, c: AMBER if c == 2 else None)
+    data = CategoryChartData()
+    shown = owners[::-1]
+    data.categories = [name for name, _ in shown]
+    data.add_series('Unexplained INR', [float(v['open']) for _, v in shown])
+    chart = slide.shapes.add_chart(XL_CHART_TYPE.BAR_CLUSTERED, Inches(0.5), Inches(1.95), Inches(5.6), Inches(4.85), data).chart
+    chart.has_legend = False
+    _colour_series(chart, (AMBER,))
+    plot = chart.plots[0]
+    plot.gap_width = 70
+    plot.has_data_labels = True
+    labels = plot.data_labels
+    labels.font.size, labels.font.bold, labels.font.name = Pt(11), True, FONT
+    labels.number_format, labels.number_format_is_linked, labels.position = '#,##0,"k"', False, XL_LABEL_POSITION.OUTSIDE_END
+    _tidy(chart, value_axis=False)
+    rows = [[name, str(v['lines']), '; '.join(f'{n} × {why.lower()}' for why, n in v['reasons'].items())] for name, v in owners]
+    _table(slide, 6.45, 1.95, 6.28, ['OWNER', 'LINES', 'WHY STILL OPEN'], rows, [1.75, 0.75, 3.78], row_h=0.52, size=11,
+           bolds=lambda r, c: c == 0)
 
 
 def _outlook_slide(deck, pack, headline, footer):
     slide = _slide(deck, 'Outlook: run-rate impact', headline, footer)
     split = timing_split(pack)
-    data = CategoryChartData()
-    order = list(split)[::-1]  # first category at the top
-    data.categories = order
-    data.add_series('INR', [float(split[k]) for k in order])
-    chart = slide.shapes.add_chart(XL_CHART_TYPE.BAR_CLUSTERED, Inches(0.6), Inches(1.7), Inches(6.4), Inches(4.0), data).chart
-    chart.has_legend = False
-    series = chart.series[0]
-    for i, colour in enumerate((BLUE, RED, GREEN, GREY, AMBER)[::-1]):
-        point = series.points[i]
-        point.format.fill.solid()
-        point.format.fill.fore_color.rgb = colour
-    plot = chart.plots[0]
-    plot.has_data_labels = True
-    plot.data_labels.font.size, plot.data_labels.number_format, plot.data_labels.number_format_is_linked = Pt(11), '#,##0,"k"', False
-    _tidy(chart)
-    chart.value_axis.tick_labels.number_format, chart.value_axis.tick_labels.number_format_is_linked = '#,##0,"k"', False
-    _text(slide, 0.6, 5.75, 6.4, 1.1, ['Confirmed explanations only, by the timing the reviewer gave. Unexplained = material variance '
-                                       'without a confirmed explanation.'], size=10, color=GREY)
-    meaning = [f"↻ Recurring {_whole(split['Recurring'])}: likely to continue; reflect it in the next forecast.",
-               f"⇄ Timing {_whole(split['Timing difference'])}: expected to reverse in later months.",
-               f"① One-off {_whole(split['One-off'])}: no run-rate impact expected.",
-               f"? Open {_whole(split['Unexplained'])}: no confirmed explanation yet."]
-    actions = [f"☐ {l['label']}: {l['note']['action']}" for _, l in material_lines(pack) if l['note'] and l['note']['action']][:5]
-    _text(slide, 7.3, 1.75, 5.45, 2.4, meaning, size=13, color=INK)
-    if actions:
-        _text(slide, 7.3, 4.2, 5.45, 0.35, 'ACTIONS PROPOSED BY REVIEWERS', size=11, bold=True, color=BLUE)
-        _text(slide, 7.3, 4.55, 5.45, 2.4, actions, size=11, color=INK)
+    cards = [('↻', 'Recurring', split['Recurring'], RED, 'Likely to continue: reflect it in the next forecast'),
+             ('⇄', 'Timing difference', split['Timing difference'], SLATE, 'Expected to reverse in later months'),
+             ('1', 'One-off', split['One-off'], TEAL, 'No run-rate impact expected'),
+             ('?', 'Unexplained', split['Unexplained'], AMBER, 'No confirmed explanation yet')]
+    width, gap = 2.845, 0.25
+    for i, (symbol, label, value, colour, meaning) in enumerate(cards):
+        x = 0.6 + i * (width + gap)
+        _rect(slide, x, 1.95, width, 2.05, MIST, MSO_SHAPE.ROUNDED_RECTANGLE)
+        _badge(slide, x + 0.22, 2.15, 0.44, colour, symbol, font_size=15)
+        _text(slide, x + 0.8, 2.24, width - 0.9, 0.3, label.upper(), size=10, bold=True, color=SLATE, spacing=100)
+        _text(slide, x + 0.22, 2.78, width - 0.35, 0.5, _whole(value), size=22, bold=True, color=colour, after=0)
+        _text(slide, x + 0.22, 3.33, width - 0.4, 0.6, meaning, size=11, color=SLATE)
+    _bar(slide, 0.6, 4.25, 12.13, 0.18, [(v, c) for _, _, v, c, _ in cards])
+    note = 'Share of material movement by timing (confirmed explanations), with the unexplained remainder.'
+    if split['Unknown']:
+        note += f" A further {_whole(split['Unknown'])} is confirmed with unknown timing."
+    _text(slide, 0.6, 4.5, 12.13, 0.3, note, size=10, color=MUTED)
+    actions = [l for _, l in material_lines(pack) if l['note'] and l['note']['action']][:4]
+    _kicker(slide, 0.6, 5.0, 12, 'Actions proposed by reviewers')
+    if not actions:
+        _text(slide, 0.6, 5.35, 12, 0.4, 'No actions proposed yet.', size=13, color=SLATE)
+    for i, line in enumerate(actions):
+        x, y = 0.6 + (i % 2) * 6.2, 5.38 + (i // 2) * 0.72
+        _badge(slide, x, y, 0.32, NAVY, str(i + 1), font_size=11)
+        _text(slide, x + 0.45, y - 0.02, 5.6, 0.7, [[(line['label'] + ': ', {'bold': True}), (line['note']['action'], {})]],
+              size=12, color=INK)
 
 
 def _appendix_slides(deck, pack, footer):
@@ -524,11 +685,13 @@ def _appendix_slides(deck, pack, footer):
     for start in range(0, max(len(lines), 1), 12):
         chunk = lines[start:start + 12]
         slide = _slide(deck, 'Appendix', f'Lines needing explanation ({start + 1}–{start + len(chunk)} of {len(lines)})', footer)
-        rows = [[l['label'], _plain(l['actual']), _plain(l['baseline']), _signed(l['variance']), _pct(l), _status(l),
+        rows = [[l['label'], _plain(l['actual']), _plain(l['baseline']), _signed(l['variance']), _pct(l), '● ' + _status(l),
                  _plain(l['unexplained'])] for _, l in chunk]
-        _table(slide, 0.6, 1.6, 12.13, ['Line', 'Actual INR', pack['basis'].title() + ' INR', 'Variance INR', '%', 'Status', 'Unexplained INR'],
-               rows, [4.4, 1.4, 1.4, 1.4, 1.2, 1.1, 1.23], row_h=0.38, size=10,
-               colours=lambda r, c, chunk=chunk: (RED if _d(chunk[r][1]['variance']) > 0 else GREEN) if c == 3 else None)
+        _table(slide, 0.6, 1.75, 12.13, ['LINE', 'ACTUAL INR', pack['basis'].upper() + ' INR', 'VARIANCE INR', '%', 'STATUS',
+                                         'UNEXPLAINED INR'],
+               rows, [4.3, 1.4, 1.4, 1.4, 0.93, 1.4, 1.3], row_h=0.38, size=10.5,
+               colours=lambda r, c, chunk=chunk: (_tone(chunk[r][1]['variance']) if c == 3 else
+                                                   STATUS_COLOUR[_status(chunk[r][1])] if c == 5 else None))
 
 
 def build_deck(pack, headlines, summary, source):

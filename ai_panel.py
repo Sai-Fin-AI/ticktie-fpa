@@ -103,11 +103,14 @@ def interviewer_section(pack, client):
     c2.download_button('Query list by owner (CSV for Excel)', query_list_csv(result['findings']), stem + '.csv', 'text/csv')
 
 
-def run_agents(locked, client):
+HEADLINES = ('AI-written, tick-and-tied', 'Standard, written by the engine')
+
+
+def run_agents(locked, client, deck_client=None):
     """Commentary writer and deck builder read the same locked pack, so they run side by side."""
     with ThreadPoolExecutor(max_workers=2) as pool:
         commentary = pool.submit(write_commentary, locked, client)
-        deck = pool.submit(make_deck, locked, client)
+        deck = pool.submit(make_deck, locked, deck_client)
         try:
             written = {'hash': locked['content_hash'], **commentary.result()}
         except (AIError, ValueError) as error:
@@ -120,10 +123,13 @@ def writer_section(locked, client):
     st.caption('Two agents read the same locked pack in parallel. The writer drafts commentary; the deck agent draws every '
                'chart and table from the pack and writes only the headlines. Both are tick-and-tied; failing commentary '
                'cannot be downloaded, and failing headlines are replaced by standard wording.')
+    style = st.radio('Deck headlines', HEADLINES, horizontal=True,
+                     help='Charts, tables and numbers are always drawn by the engine. This only chooses who writes the slide titles.')
     b1, b2 = st.columns(2)
     if b1.button('Draft CFO commentary and deck', type='primary'):
         with st.spinner('Two agents at work. A local model can take a minute or two.'):
-            st.session_state.ai_commentary, st.session_state.ai_deck = run_agents(locked, client)
+            st.session_state.ai_commentary, st.session_state.ai_deck = run_agents(
+                locked, client, client if style == HEADLINES[0] else None)
     if b2.button('🖥️ CFO deck only (PowerPoint, no AI wait)',
                  help='Builds the deck straight away with standard headlines written by the engine.'):
         st.session_state.ai_deck = {'hash': locked['content_hash'], **make_deck(locked, None)}
