@@ -51,7 +51,7 @@ class EvidenceAppTests(unittest.TestCase):
 
     def ready(self):
         app = AppTest.from_file(str(APP), default_timeout=20).run()
-        app.file_uploader[0].upload('account.csv', sample_csv('account').encode(), 'text/csv').run()
+        app.sidebar.file_uploader[0].upload('account.csv', sample_csv('account').encode(), 'text/csv').run()
         self.widget(app.selectbox, 'Country').select('India').run()
         self.widget(app.selectbox, 'Compare actuals against').select('forecast').run()
         self.assertFalse(app.exception)
@@ -91,11 +91,11 @@ class EvidenceAppTests(unittest.TestCase):
         self.assertNotIn('Extra freight', self.text(app))
         self.widget(app.selectbox, 'Country').select('India').run()
         self.assertIn('Extra freight', self.text(app))
-        app.file_uploader[0].upload('new.csv', sample_csv('account').encode(), 'text/csv').run()
+        app.sidebar.file_uploader[0].upload('new.csv', sample_csv('account').encode(), 'text/csv').run()
         self.assertFalse(app.exception)
         self.assertNotIn('Extra freight', self.text(app))
         self.assertTrue(any('cleared' in x.value for x in app.warning))
-        app.file_uploader[0].clear().run()
+        app.sidebar.file_uploader[0].clear().run()
         self.assertNotIn('Extra freight', self.text(app))
 
     def test_cost_centre_note_shows_owner_and_rolls_up(self):

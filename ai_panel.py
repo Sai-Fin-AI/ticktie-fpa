@@ -4,6 +4,7 @@ from pathlib import Path
 
 import streamlit as st
 
+import fmt
 from concurrent.futures import ThreadPoolExecutor
 
 from agents.deck import make_deck
@@ -107,14 +108,14 @@ def interviewer_section(pack, client):
     c2.download_button('Query list by owner (CSV for Excel)', query_list_csv(result['findings']), stem + '.csv', 'text/csv')
 
 
-HEADLINES = ('AI-written, tick-and-tied', 'Standard, written by the engine')
+HEADLINES = ('Standard, written by the engine', 'AI-written, tick-and-tied')
 
 
-def run_agents(locked, client, deck_client=None):
+def run_agents(locked, client, deck_client=None, style=None):
     """Commentary writer and deck builder read the same locked pack, so they run side by side."""
     with ThreadPoolExecutor(max_workers=2) as pool:
-        commentary = pool.submit(write_commentary, locked, client)
-        deck = pool.submit(make_deck, locked, deck_client)
+        commentary = pool.submit(write_commentary, locked, client, style)
+        deck = pool.submit(make_deck, locked, deck_client, style)
         try:
             written = {'hash': locked['content_hash'], **commentary.result()}
         except (AIError, ValueError) as error:
@@ -122,21 +123,23 @@ def run_agents(locked, client, deck_client=None):
         return written, {'hash': locked['content_hash'], **deck.result()}
 
 
-def writer_section(locked, client):
+def writer_section(locked, client, style=None):
     st.subheader('📊 CFO pack: commentary and deck')
     st.caption('Two agents read the same locked pack in parallel. The writer drafts commentary; the deck agent draws every '
                'chart and table from the pack and writes only the headlines. Both are tick-and-tied; failing commentary '
                'cannot be downloaded, and failing headlines are replaced by standard wording.')
-    style = st.radio('Deck headlines', HEADLINES, horizontal=True,
-                     help='Charts, tables and numbers are always drawn by the engine. This only chooses who writes the slide titles.')
+    headlines = st.radio('Deck headlines', HEADLINES, horizontal=True,
+                         help='Charts, tables and numbers are always drawn by the engine. This only chooses who writes the '
+                              'slide titles. Standard titles always name the right line; AI titles can read better or worse.')
     b1, b2 = st.columns(2)
     if b1.button('Draft CFO commentary and deck', type='primary'):
         with st.spinner('Two agents at work. A local model can take a minute or two.'):
             st.session_state.ai_commentary, st.session_state.ai_deck = run_agents(
-                locked, client, client if style == HEADLINES[0] else None)
+                locked, client, client if headlines == HEADLINES[1] else None, style)
     if b2.button('🖥️ CFO deck only (PowerPoint, no AI wait)',
                  help='Builds the deck straight away with standard headlines written by the engine.'):
-        st.session_state.ai_deck = {'hash': locked['content_hash'], **make_deck(locked, None)}
+        st.session_state.ai_deck = {'hash': locked['content_hash'], **make_deck(locked, None, style)}
+        fmt.use(style)  # make_deck ran in this thread; keep the screen in the chosen style
     deck_section(locked)
     result = st.session_state.get('ai_commentary')
     if not result or result['hash'] != locked['content_hash']:

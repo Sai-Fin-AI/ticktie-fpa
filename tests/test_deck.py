@@ -140,7 +140,8 @@ class DeckBuildTests(unittest.TestCase):
             make_deck(tampered, None)
         result = make_deck(self.pack, Client(DEMO))
         self.assertTrue(result['source'].startswith('AI (Demo'), result['issues'])
-        self.assertEqual(result['issues'], [])
+        # The recording is found; any headline that fails the checks is swapped for standard wording, never shown.
+        self.assertTrue(all('replaced with standard wording' in i for i in result['issues']), result['issues'])
         self.assertEqual(set(KEYS), set(default_headlines(self.pack)))
 
 
@@ -150,9 +151,13 @@ class DeckAppTests(unittest.TestCase):
         button = lambda label: next(b for b in app.button if b.label == label)
         button('Load demo explanations').click().run()
         button('Lock review pack').click().run()
+        headlines = next(r for r in app.radio if r.label == 'Deck headlines')
+        self.assertEqual(headlines.value, 'Standard, written by the engine')
+        headlines.set_value('AI-written, tick-and-tied').run()
         button('Draft CFO commentary and deck').click().run()
         self.assertFalse(app.exception)
         deck = app.session_state['ai_deck']
+        self.assertTrue(deck['source'].startswith('AI (Demo'), deck['issues'])
         self.assertEqual(len(Presentation(io.BytesIO(deck['pptx'])).slides), 10)
         self.assertTrue(any('CFO deck' in x.value and '10 slides' in x.value for x in app.markdown))
         self.assertIn('✔ Tick-and-tie passed', app.session_state['ai_commentary']['html'])

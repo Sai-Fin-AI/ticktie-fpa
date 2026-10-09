@@ -6,8 +6,11 @@ assembled by code from the pack, and every AI sentence is tick-and-tied before i
 import json
 from decimal import Decimal
 
-from agents import cost_centre, grouped_lines, inr, line_facts, material_lines, offset_sentences, owner
-from checker import allowed_figures, check_line_text, internal_codes, misattributed_figures, unsupported_figures
+import fmt
+from agents import (cost_centre, full_year_facts, grouped_lines, inr, line_facts, material_lines, offset_sentences,
+                    owner)
+from checker import (account_total_confusion, short_name, allowed_figures, check_line_text, internal_codes, misattributed_figures,
+                     unsupported_figures)
 from llm import AIError
 from pack import load_pack, pack_json, open_reason
 from report_html import commentary_html
@@ -25,10 +28,16 @@ Rules, in order of importance:
 5. Use the outcome word given (favorable or unfavorable). Expense above plan is unfavorable.
 6. Plain, neutral CFO language. One to two sentences per line. No marketing words.
 7. Each line already has a heading with its country, cost centre (if any) and account: do not repeat them at the start of the commentary.
+   If you do name a line, in its commentary or in a summary bullet, use its "name" fact exactly (for example
+   "India Operations Distribution"). With cost centres, a country plus an account ("India Distribution") means the
+   account total across all cost centres, so never use it for a single line.
 8. line_id values (L01, L02...) are internal. Never write them in the text; name the country, cost centre or account instead.
 9. A line marked why_in_scope is small on its own; say it is part of a wider account movement.
 Executive summary: 2 to 4 short bullets covering the net result, the largest explained drivers and what remains open.
-If "offsets" are given, one bullet must mention the largest one, copying its amounts."""
+For drivers, copy phrases from "largest_explained_drivers"; never pair a name with an amount from another fact.
+When a sentence quotes amounts, it names only one line or account (use separate sentences for separate lines).
+If "offsets" are given, one bullet must mention the largest one, copying its sentence's amounts (net, gross, hidden).
+If "full_year" is given, you may add one bullet copying its full-year effect and assumption."""
 
 SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': ['executive_summary', 'lines'], 'properties': {
     'executive_summary': {'type': 'array', 'minItems': 2, 'maxItems': 4, 'items': {'type': 'string'}},
@@ -46,7 +55,17 @@ def _facts(pack):
             'explained_confirmed': inr(s['explained']), 'unexplained': inr(s['unexplained']), 'open_items': s['open_items'],
             'analysed_by': ' x '.join(['country'] + [d.replace('_', ' ') for d in pack.get('grain', [])] + ['account']),
             'offsets': offset_sentences(pack),
+            'largest_explained_drivers': driver_sentences(pack),
+            'full_year': full_year_facts(pack.get('outlook')),
             'explained_lines': [line_facts(i, l, basis) for i, l in material_lines(pack) if l['note']]}
+
+
+def driver_sentences(pack, limit=3):
+    """Ready phrases for the largest confirmed explanations, so summary bullets never pair a name with the wrong figure."""
+    lines = sorted((l for _, l in material_lines(pack) if l['note'] and Decimal(l['explained'])),
+                   key=lambda l: Decimal(l['explained']), reverse=True)[:limit]
+    return [f"{short_name(l)}: {inr(l['explained'])} explained ({l['note']['reason'].rstrip('.')}) out of a "
+            f"{inr(l['variance'])} {l['direction'].lower()} variance" for l in lines]
 
 
 def check_draft(pack, reply):
@@ -76,11 +95,13 @@ def check_draft(pack, reply):
         for code in internal_codes(entry['commentary']):
             issues.append(f"{entry['line_id']}: uses the internal code {code}")
         issues += [f"{entry['line_id']}: {problem}" for problem in check_line_text(entry['commentary'], line)]
+        issues += [f"{entry['line_id']}: {problem}" for problem in account_total_confusion(entry['commentary'], line, pack)]
     return issues
 
 
-def write_commentary(pack, client):
+def write_commentary(pack, client, style=None):
     """Draft, check, retry once with the problems listed, check again. Raises AIError if the AI cannot run."""
+    fmt.use(style)
     pack = load_pack(pack_json(pack))  # refuse a pack edited after locking
     facts = json.dumps(_facts(pack), ensure_ascii=False, indent=1)
     reply = client.complete('commentary', pack['content_hash'], SYSTEM, facts, SCHEMA)

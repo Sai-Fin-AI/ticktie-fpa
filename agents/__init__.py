@@ -1,9 +1,12 @@
 """AI agents. Each one drafts words only; figures come from the review pack and are checked by checker.py."""
 from decimal import Decimal
 
+import fmt
+from checker import short_name
+
 
 def inr(value):
-    return f'INR {abs(Decimal(value)):,.2f}'
+    return f'INR {fmt.group(value, 2)}'
 
 
 def pct_text(line):
@@ -33,7 +36,7 @@ def account_group(pack, line):
 
 
 def line_facts(line_id, line, basis):
-    facts = {'line_id': line_id, 'country': line['country'], 'account': line['account'],
+    facts = {'line_id': line_id, 'name': short_name(line), 'country': line['country'], 'account': line['account'],
              'movement': f"{inr(line['variance'])} {'above' if Decimal(line['variance']) > 0 else 'below'} {basis}",
              'variance_pct': pct_text(line), 'outcome': line['direction'],
              'explained_confirmed': inr(line['explained']), 'unexplained': inr(line['unexplained'])}
@@ -47,6 +50,19 @@ def line_facts(line_id, line, basis):
                       'review_status': n['status'], 'timing': n['timing'], 'proposed_action': n['action'] or 'none',
                       'coverage': coverage(line)})
     return facts
+
+
+def full_year_facts(outlook, money=None):
+    """The pack's full-year view as ready phrases, so the AI never projects anything itself."""
+    if not outlook:
+        return 'not available'
+    money = money or inr
+    word = lambda v: f"{money(v)} {'above' if Decimal(v) > 0 else 'below'} plan" if Decimal(v) else 'none'
+    return {'financial_year': outlook['fy'], 'months_left_after_this_one': outlook['months_left'],
+            'recurring_for_full_year': word(outlook['recurring_fy']),
+            'full_year_effect_of_confirmed_items': word(outlook['fy_effect']),
+            'assumption': "recurring items continue at this month's amount; timing differences reverse within the year; "
+                          'unexplained variance is not projected'}
 
 
 def coverage(line):

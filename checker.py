@@ -29,6 +29,11 @@ def allowed_figures(pack):
     if gross:
         pcts.add(_dec(s['explained']) / gross * 100)  # share of material movement explained
     counts = {s['rows'], s['material'], s['open_items'], len({l['country'] for l in pack['lines']})}
+    outlook = pack.get('outlook')
+    if outlook:
+        amounts.update(abs(_dec(outlook[k])) for k in ('one_off', 'unknown_timing', 'timing', 'recurring_month',
+                                                        'recurring_rest', 'recurring_fy', 'fy_effect'))
+        counts.add(outlook['months_left'])
     for entries in pack.get('rollups', {}).values():
         for e in entries:
             amounts.update(abs(_dec(e[k])) for k in ('actual', 'baseline', 'net', 'gross', 'hidden', 'explained', 'unexplained'))
@@ -131,59 +136,114 @@ def figure_records(pack, extra=()):
 
 
 def entity_names(pack):
-    """{name: kind}. Structure names (country, cost centre, account...) identify a line together;
-    owners and timing types stand on their own."""
+    """{name: kind}. Country and account ('structure') and cost centre or other levels ('dim') identify a
+    line together; owners and timing types stand on their own."""
     names = {t: 'timing' for t in ('One-off', 'Recurring', 'Timing difference')}
     for line in pack['lines']:
-        for name in (line['country'], line['account'], *line.get('dims', {}).values(),
+        for name in (line['country'], line['account']):
+            names.setdefault(name, 'structure')
+        for name in (*line.get('dims', {}).values(),
                      *(v for k, v in line.get('attrs', {}).items() if k in ('cc_name', 'function'))):
             if name:
-                names.setdefault(name, 'structure')
+                names.setdefault(name, 'dim')
         if line.get('attrs', {}).get('owner'):
             names.setdefault(line['attrs']['owner'], 'owner')
     return names
 
 
-def misattributed_figures(text, pack, extra=()):
-    """Amounts in a sentence that names an entity must belong to that entity (or be a grand total).
+def line_names(line):
+    """Names that identify a line below country x account: cost centre code and name, other levels."""
+    return [v for v in (*line.get('dims', {}).values(), line.get('attrs', {}).get('cc_name')) if v]
 
-    Catches the right number attached to the wrong country, account, cost centre or owner.
+
+def short_name(line):
+    """How commentary should name one line: "India Operations Distribution", or "India Distribution"
+    when the data has no cost centres (then the line is the account total)."""
+    names = line_names(line)
+    return f"{line.get('attrs', {}).get('cc_name') or (names[0] if names else line['country'])} {line['account']}"
+
+
+def account_total_confusion(text, line, pack):
+    """With cost centres, "India Distribution" is the account total. Commentary about one cost-centre
+    line must not name it by country and account alone, or the reader takes it for the total."""
+    if not pack.get('grain'):
+        return []
+    has = lambda name: re.search(rf'(?<!\w){re.escape(name)}(?!\w)', text, re.I)
+    if has(line['country']) and has(line['account']) and not any(has(n) for n in line_names(line)):
+        return [f'names the account total "{line["country"]} {line["account"]}"; call this line "{short_name(line)}"']
+    return []
+
+
+def _name_groups(text, kinds):
+    """Runs of adjacent entity names, such as "India | IN-OPS India Operations | Distribution", with positions."""
+    spans = sorted((m.start(), m.end(), name) for name in kinds
+                   for m in re.finditer(rf'(?<!\w){re.escape(name)}(?!\w)', text, re.I))
+    groups = []  # [start, end, names]
+    for start, end, name in spans:
+        if groups and (start < groups[-1][1] or re.fullmatch(r'[\s|·/\-]*', text[groups[-1][1]:start])):
+            groups[-1][1] = max(groups[-1][1], end)
+            groups[-1][2].append(name)
+        else:
+            groups.append([start, end, [name]])
+    for group in groups:  # "India Operations" also contains "India": keep the most specific names
+        group[2] = [n for n in dict.fromkeys(group[2]) if not any(n != m and n.lower() in m.lower() for m in group[2])]
+    return groups
+
+
+def misattributed_figures(text, pack, extra=()):
+    """An amount written next to a name must belong to that name (or be a pack-wide total).
+
+    Each amount is bound to the nearest name before it in the sentence (or the first one after it when
+    the amount comes first), the way a reader would take it. Catches the right number attached to the
+    wrong country, account, cost centre or owner.
     """
     kinds = entity_names(pack)
-    mentioned = [n for n in kinds if re.search(rf'(?<!\w){re.escape(n)}(?!\w)', text, re.I)]
-    if not mentioned:
+    groups = _name_groups(text, kinds)
+    if not groups:
         return []
-    # A cost centre name such as "India Operations" also mentions "India"; keep only the most specific names.
-    mentioned = [n for n in mentioned if not any(n != m and n.lower() in m.lower() for m in mentioned)]
-    structure = [n for n in mentioned if kinds[n] == 'structure']
-    standalone = [n for n in mentioned if kinds[n] != 'structure']
     t, s, th = pack['totals'], pack['summary'], pack['thresholds']
     global_amounts = {abs(_dec(v)) for v in (t['actual'], t['baseline'], t['variance'], s['explained'], s['unexplained'],
                                             th['amount'], th.get('total_amount')) if v is not None}
+    outlook = pack.get('outlook') or {}
+    # Full-year figures are pack-wide totals (all recurring items, all confirmed items), like the net variance.
+    global_amounts |= {abs(_dec(outlook[k])) for k in ('one_off', 'timing', 'recurring_month', 'recurring_rest',
+                                                       'recurring_fy', 'fy_effect') if k in outlook}
     allowed = allowed_figures(pack)
     gross = sum(abs(_dec(l['variance'])) for l in pack['lines'] if l['material'])
     global_pcts = {_dec(th[k]) for k in ('pct', 'total_pct') if th.get(k) is not None}
     global_pcts |= {abs(_dec(t['pct']))} if t['pct'] is not None else set()
     global_pcts |= {_dec(s['explained']) / gross * 100} if gross else set()
     every = figure_records(pack, extra)
-    records = [r for r in every if structure and all(m.lower() in r[0].lower() for m in structure)]
-    records += [r for r in every if any(m.lower() in r[0].lower() for m in standalone)]
+
+    def records_for(names):
+        structure = [n for n in names if kinds[n] in ('structure', 'dim')]
+        standalone = [n for n in names if kinds[n] not in ('structure', 'dim')]
+        if pack.get('grain') and structure and not any(kinds[n] == 'dim' for n in structure):
+            # "India Distribution" without a cost centre means the account total, not one of its lines.
+            candidates = every[len(pack['lines']):]
+        else:
+            candidates = every
+        found = [r for r in candidates if structure and all(m.lower() in r[0].lower() for m in structure)]
+        return found + [r for r in every if any(m.lower() in r[0].lower() for m in standalone)]
+
     problems = []
     for match in NUMBER.finditer(text):
+        before = [g for g in groups if g[1] <= match.start()]
+        names = (before[-1] if before else groups[0])[2]
         raw, unit = match.group(1), (match.group(2) or '').lower()
         value, decimals = _dec(raw), (len(raw.split('.')[1]) if '.' in raw else 0)
         if unit in ('%', 'percent'):
             near = lambda targets: any(abs(value - p) <= Decimal(10) ** -decimals / 2 for p in targets)
-            if not near(global_pcts) and not any(near(r[2]) for r in records):
-                problems.append(match.group(0).strip())
+            if not near(global_pcts) and not any(near(r[2]) for r in records_for(names)):
+                problems.append((match.group(0).strip(), names))
             continue
         if not unit and value in allowed['plain']:
             continue
         scale = UNITS.get(unit, Decimal(1))
-        if not _matches(value, decimals, global_amounts, scale) and not any(_matches(value, decimals, r[1], scale) for r in records):
-            problems.append(match.group(0).strip())
-    return [f'"{p}" does not belong to {" / ".join(mentioned)}' for p in problems]
-
+        if not _matches(value, decimals, global_amounts, scale) and not any(
+                _matches(value, decimals, r[1], scale) for r in records_for(names)):
+            problems.append((match.group(0).strip(), names))
+    return [f'"{p}" does not belong to {" / ".join(names)}' for p, names in problems]
 
 def internal_codes(text):
     """Line IDs such as L03 are for the machine, not the CFO."""

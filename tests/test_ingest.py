@@ -125,8 +125,8 @@ class IngestAppTests(unittest.TestCase):
         app = AppTest.from_file(str(APP), default_timeout=30).run()
         next(r for r in app.radio if r.label == 'Data source').set_value('Separate files').run()
         self.assertTrue(any('Upload at least the actuals and budget' in x.value for x in app.info))
-        app.file_uploader[0].upload('actuals.csv', sample_actuals_csv().encode(), 'text/csv').run()
-        app.file_uploader[1].upload('budget.xlsx', sample_budget_xlsx(),
+        app.sidebar.file_uploader[0].upload('actuals.csv', sample_actuals_csv().encode(), 'text/csv').run()
+        app.sidebar.file_uploader[1].upload('budget.xlsx', sample_budget_xlsx(),
                                     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').run()
         self.assertEqual(self.metrics(app)['Actual expense · INR'], '12,380,000')
         self.assertEqual(self.metrics(app)['Budget · INR'], '12,000,000')
@@ -135,13 +135,13 @@ class IngestAppTests(unittest.TestCase):
         self.assertEqual(table.count('✅'), 2)
         next(s for s in app.selectbox if s.label == 'Compare actuals against').select('forecast').run()
         self.assertTrue(any('No forecast file' in x.value for x in app.error))
-        app.file_uploader[2].upload('forecast.csv', sample_forecast_csv().encode(), 'text/csv').run()
+        app.sidebar.file_uploader[2].upload('forecast.csv', sample_forecast_csv().encode(), 'text/csv').run()
         self.assertEqual(self.metrics(app)['Forecast · INR'], '12,190,000')
 
     def test_dropdown_fixes_an_unrecognised_column(self):
         app = AppTest.from_file(str(APP), default_timeout=30).run()
         text = sample_csv('account').replace('actual,budget', 'Spend,budget', 1)
-        app.file_uploader[0].upload('odd.csv', text.encode(), 'text/csv').run()
+        app.sidebar.file_uploader[0].upload('odd.csv', text.encode(), 'text/csv').run()
         self.assertTrue(any('Choose a column for Actual amount' in x.value for x in app.error))
         next(s for s in app.selectbox if s.label == '“Spend”').select('actual').run()
         self.assertEqual(self.metrics(app)['Actual expense · INR'], '12,380,000')

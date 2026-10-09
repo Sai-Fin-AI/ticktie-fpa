@@ -2,14 +2,16 @@
 from decimal import Decimal
 import hashlib
 import streamlit as st
+import fmt
 from finance import (CC, aggregate, apply_master, compare, dim_label, line_label, load_cc_master, load_csv,
                      review_lines, sample_cc_master_csv)
 from evidence import STATUSES, TIMINGS, note_key, make_note, evidence_commentary
-from pack import (build_pack, lock_pack, pack_json, pack_excel, pack_markdown, export_notes, import_notes,
+from pack import (MONTHS, build_pack, lock_pack, pack_json, pack_excel, pack_markdown, export_notes, import_notes,
                   rollup_views)
 from report_html import heatmap_html
 from ai_panel import ai_settings, demo_notes_button, interviewer_section, reset_note_widgets, writer_section
 from data_panel import load_inputs, show_reconciliation, source_uploads
+from notes_panel import excel_roundtrip, notes_table, show_bulk_errors
 import pandas as pd
 from style import apply_style, colour_table, hero, money_columns, section
 
@@ -20,6 +22,13 @@ hero_box = st.container()  # filled once the data is known
 with st.sidebar:
     st.header('Analysis settings')
     baseline = st.selectbox('Compare actuals against', ['budget', 'forecast'])
+    number_style = st.selectbox('Number style', fmt.STYLES,
+                                help='How amounts are written on screen, in the commentary and in the deck. '
+                                     'Indian style: 1,23,80,000 · 3.40 L · 1.24 Cr. The figures themselves do not change.')
+    fmt.use(number_style)
+    fy_start = MONTHS.index(st.selectbox('Financial year starts in', MONTHS, index=3,
+                                         help='Used for the full-year view: recurring items are rolled forward to '
+                                              'the end of this financial year.')) + 1
     level_box = st.container()
     total_caption = st.empty()
     amount = Decimal(str(st.number_input('Minimum variance (INR)', min_value=0, value=50000, step=10000)))
@@ -116,7 +125,7 @@ actual = sum(r['actual'] for r in selected)
 plan = sum(r[baseline] for r in selected)
 total = compare(actual, plan, *(total_thresholds or line_thresholds))
 material = [r for r in result if r['material']]
-current_pack = build_pack(rows, baseline, *line_thresholds, st.session_state.business_notes, total_thresholds)
+current_pack = build_pack(rows, baseline, *line_thresholds, st.session_state.business_notes, total_thresholds, fy_start)
 with hero_box:
     hero('FP&A Variance Assistant',
          'Variance analysis that never invents a cause. Figures come from fixed rules; AI drafts wording only, '
@@ -127,9 +136,9 @@ in_scope = [l for l in current_pack['lines'] if l['material'] and in_view(l)]
 gap = sum(abs(Decimal(l['variance'])) for l in in_scope)
 explained = sum(Decimal(l['explained']) for l in in_scope)
 c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric('Actual expense · INR', f'{actual:,.0f}')
-c2.metric(f'{baseline.title()} · INR', f'{plan:,.0f}')
-c3.metric('Net variance · INR', f"{total['variance']:+,.0f}",
+c1.metric('Actual expense · INR', fmt.group(actual))
+c2.metric(f'{baseline.title()} · INR', fmt.group(plan))
+c3.metric('Net variance · INR', fmt.signed(total['variance']),
           delta=f"{total['pct']:+.1f}% vs {baseline}" if total['pct'] is not None else None, delta_color='inverse',
           help='Red arrow up = spend above plan (unfavorable); green arrow down = below plan.')
 c4.metric('Lines to explain', len(material))
@@ -137,6 +146,11 @@ c5.metric('Explained (confirmed)', f'{explained / gap * 100:.0f}%' if gap else '
           help='Confirmed explanations as a share of the lines that need one.')
 st.caption(f"Period: {selected[0]['month']} · {len(selected)} lines analysed by {level_name} · "
            f"Net outcome: {total['direction']}. Individual favorable and unfavorable movements can offset in the total.")
+outlook = current_pack['outlook']
+if Decimal(outlook['fy_effect']):
+    st.caption(f"📅 **Full-year view ({outlook['fy']}, {outlook['months_left']} months left):** confirmed explanations point to "
+               f"INR {fmt.signed(outlook['fy_effect'])} vs plan, if recurring items continue at this month's amount and "
+               'timing differences reverse. Unexplained variance is not projected. All countries.')
 
 if grain:
     with st.container(border=True, key='card_1'):
@@ -180,48 +194,57 @@ st.caption('A confirmed note means you reviewed it; the app does not verify the 
 demo_notes_button(rows)
 if material:
     options = {note_key(r, baseline): r for r in material}
-    chosen = st.selectbox('Account to explain', list(options),
-                          format_func=lambda k: f"{line_label(options[k])} | {options[k]['month']} | vs {baseline}"
-                                                + (' · part of a material account total' if options[k]['scope'] == 'Account total' else ''),
-                          key='evidence_widget_account_' + baseline)
-    target = options[chosen]
-    saved = st.session_state.business_notes.get(chosen, {})
-    widget_prefix = 'evidence_widget_' + hashlib.sha256(repr(chosen).encode()).hexdigest()
-    who = f" Owner: {target['owner']}." if target.get('owner') else ''
-    st.caption(f"Variance to explain: INR {abs(target['variance']):,.2f} ({target['direction'].lower()}).{who} "
-               'Enter a positive amount, no larger than this variance.')
-    # Seed the widgets from the saved note through session state: a keyed widget keeps its old browser value
-    # and ignores a changed `value=`, so loaded or restored notes would otherwise show an empty form.
-    defaults = {'reason': saved.get('reason', ''), 'reference': saved.get('reference', ''),
-                'amount': str(saved.get('amount', '0')), 'status': saved.get('status', STATUSES[0]),
-                'timing': saved.get('timing', TIMINGS[0]), 'action': saved.get('action', '')}
-    for field, value in defaults.items():
-        st.session_state.setdefault(f'{widget_prefix}_{field}', value)
-    with st.form(widget_prefix + '_form', enter_to_submit=False):
-        reason = st.text_area('Business explanation', max_chars=2000, key=widget_prefix + '_reason')
-        reference = st.text_input('Supporting reference', max_chars=300,
-                                  help='For example: Fictional freight note, August 2026. References are labels; no documents are fetched.', key=widget_prefix + '_reference')
-        covered = st.text_input('Amount explained (INR)', key=widget_prefix + '_amount')
-        status = st.selectbox('Review status', STATUSES, key=widget_prefix + '_status')
-        timing = st.selectbox('Timing', TIMINGS, key=widget_prefix + '_timing')
-        action = st.text_area('Proposed next action (optional)', max_chars=1000, key=widget_prefix + '_action')
-        submitted = st.form_submit_button('Save explanation')
-        removed = st.form_submit_button('Remove saved explanation')
-    if removed:
-        st.session_state.business_notes.pop(chosen, None)
-        for key in list(st.session_state):
-            if key.startswith(widget_prefix):
-                del st.session_state[key]
-        st.rerun()
-    if submitted:
-        try:
-            st.session_state.business_notes[chosen] = make_note(target, baseline, reason, reference, covered, status, timing, action)
-        except ValueError as error:
-            st.error(str(error) + ' The draft still uses the last saved note, if any.')
-        else:
-            # Rerun so the summaries above include the new note.
-            st.session_state.flash = 'Explanation saved. Review the updated draft below.'
+    all_material = [r for r in review_lines(rows, baseline, line_thresholds, total_thresholds) if r['material']]
+    every = {note_key(r, baseline): r for r in all_material}
+    show_bulk_errors()
+    one, table, excel = st.tabs(['📝 One line at a time', f'📋 All lines ({len(every)}, all countries)', '📤 Excel round-trip'])
+    with table:
+        notes_table(every, baseline)
+    with excel:
+        excel_roundtrip(every, baseline, rows[0]['month'])
+    with one:
+        chosen = st.selectbox('Account to explain', list(options),
+                              format_func=lambda k: f"{line_label(options[k])} | {options[k]['month']} | vs {baseline}"
+                                                    + (' · part of a material account total' if options[k]['scope'] == 'Account total' else ''),
+                              key='evidence_widget_account_' + baseline)
+        target = options[chosen]
+        saved = st.session_state.business_notes.get(chosen, {})
+        widget_prefix = 'evidence_widget_' + hashlib.sha256(repr(chosen).encode()).hexdigest()
+        who = f" Owner: {target['owner']}." if target.get('owner') else ''
+        st.caption(f"Variance to explain: INR {abs(target['variance']):,.2f} ({target['direction'].lower()}).{who} "
+                   'Enter a positive amount, no larger than this variance.')
+        # Seed the widgets from the saved note through session state: a keyed widget keeps its old browser value
+        # and ignores a changed `value=`, so loaded or restored notes would otherwise show an empty form.
+        defaults = {'reason': saved.get('reason', ''), 'reference': saved.get('reference', ''),
+                    'amount': str(saved.get('amount', '0')), 'status': saved.get('status', STATUSES[0]),
+                    'timing': saved.get('timing', TIMINGS[0]), 'action': saved.get('action', '')}
+        for field, value in defaults.items():
+            st.session_state.setdefault(f'{widget_prefix}_{field}', value)
+        with st.form(widget_prefix + '_form', enter_to_submit=False):
+            reason = st.text_area('Business explanation', max_chars=2000, key=widget_prefix + '_reason')
+            reference = st.text_input('Supporting reference', max_chars=300,
+                                      help='For example: Fictional freight note, August 2026. References are labels; no documents are fetched.', key=widget_prefix + '_reference')
+            covered = st.text_input('Amount explained (INR)', key=widget_prefix + '_amount')
+            status = st.selectbox('Review status', STATUSES, key=widget_prefix + '_status')
+            timing = st.selectbox('Timing', TIMINGS, key=widget_prefix + '_timing')
+            action = st.text_area('Proposed next action (optional)', max_chars=1000, key=widget_prefix + '_action')
+            submitted = st.form_submit_button('Save explanation')
+            removed = st.form_submit_button('Remove saved explanation')
+        if removed:
+            st.session_state.business_notes.pop(chosen, None)
+            for key in list(st.session_state):
+                if key.startswith(widget_prefix):
+                    del st.session_state[key]
             st.rerun()
+        if submitted:
+            try:
+                st.session_state.business_notes[chosen] = make_note(target, baseline, reason, reference, covered, status, timing, action)
+            except ValueError as error:
+                st.error(str(error) + ' The draft still uses the last saved note, if any.')
+            else:
+                # Rerun so the summaries above include the new note.
+                st.session_state.flash = 'Explanation saved. Review the updated draft below.'
+                st.rerun()
 
 section('🧾', 'Draft commentary for review')
 summary = (f"{selected[0]['month']} | {country} | Compared with {baseline}\n"
@@ -262,7 +285,7 @@ elif locked:
                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     d2.download_button('Commentary (Markdown)', pack_markdown(locked), stem + '.md', 'text/markdown')
     d3.download_button('Pack data (JSON)', pack_json(locked), stem + '.json', 'application/json')
-    writer_section(locked, client)
+    writer_section(locked, client, number_style)
 else:
     st.write('Not locked yet. Save explanations first, then lock the pack. '
              'The Excel pack, CFO commentary and CFO PowerPoint deck appear here once locked.')

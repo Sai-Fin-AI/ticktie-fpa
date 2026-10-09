@@ -6,6 +6,7 @@ page reads in black-and-white print and for colour-blind readers. All text is HT
 from decimal import Decimal
 from html import escape
 
+import fmt
 from agents import cost_centre, grouped_lines, material_lines, owner, pct_text
 from pack import open_reason
 
@@ -18,7 +19,7 @@ FONT = "font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 
 
 def _inr(value, places=2):
-    return f'INR {abs(Decimal(value)):,.{places}f}'
+    return f'INR {fmt.group(value, places)}'
 
 
 def _chip(text, colour):
@@ -59,14 +60,7 @@ def _coverage_bar(line):
 
 
 def _compact(value):
-    value = Decimal(value)
-    if value == 0:
-        return '0'
-    sign = '+' if value > 0 else '−'
-    value = abs(value)
-    if value >= 10 ** 6:
-        return f'{sign}{value / 10 ** 6:.1f}m'
-    return f'{sign}{value / 1000:.0f}k' if value >= 1000 else f'{sign}{value:.0f}'
+    return fmt.compact(value)
 
 
 def heatmap_html(pack, country=None):
@@ -149,6 +143,31 @@ def _section(title, colour=BLUE):
             f'margin:22px 0 10px">{escape(title)}</div>')
 
 
+def full_year_html(outlook):
+    """Full-year effect of confirmed explanations, written by code from the pack."""
+    if not outlook:
+        return ''
+
+    def signed(value, bold=False):
+        value = Decimal(value)
+        colour = RED if value > 0 else GREEN if value < 0 else GREY
+        return (f'<div style="font-size:{18 if bold else 16}px;font-weight:700;color:{colour}">'
+                f'{escape(fmt.signed(value)) if value else "0"}</div>')
+
+    months = outlook['months_left']
+    once = Decimal(outlook['one_off']) + Decimal(outlook['unknown_timing'])
+    cells = [('One-off (once)', once), (f'Recurring × {months + 1} months', outlook['recurring_fy']),
+             ('Timing (reverses in year)', 0), ('Full-year effect, confirmed', outlook['fy_effect'])]
+    body = ''.join(f'<div style="flex:1 1 150px;min-width:140px"><div style="font-size:12px;color:{GREY}">{escape(label)}</div>'
+                   f'{signed(value, i == 3)}</div>' for i, (label, value) in enumerate(cells))
+    return (_section(f"Full-year view · {outlook['fy']} · {months} month{'s' if months != 1 else ''} left") +
+            f'<div style="background:#fff;border:1px solid #eaecf0;border-radius:10px;padding:12px 16px">'
+            f'<div style="display:flex;flex-wrap:wrap;gap:12px">{body}</div>'
+            f'<div style="font-size:12px;color:{GREY};margin-top:8px">Assumes recurring items continue at this month\'s amount '
+            'and timing differences reverse within the year. Unexplained variance is not projected. '
+            '+ = above plan (unfavorable). INR.</div></div>')
+
+
 def commentary_html(pack, reply, issues, model):
     t, s, basis = pack['totals'], pack['summary'], pack['basis']
     written = {e['line_id']: e['commentary'] for e in reply['lines']}
@@ -194,6 +213,7 @@ def commentary_html(pack, reply, issues, model):
         out.append(_section(f'Open items ({len(opens)})', AMBER))
         out.append(f'<div style="background:{TINT[AMBER]};border:1px solid {AMBER}33;border-radius:10px;padding:6px 16px">'
                    + ''.join(open_row(l, why) for l, why in opens) + '</div>')
+    out.append(full_year_html(pack.get('outlook')))
     actions = [l for _, l in material_lines(pack) if l['note'] and l['note']['action']]
     if actions:
         out.append(_section('Actions proposed by reviewers', GREEN))

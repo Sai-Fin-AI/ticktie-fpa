@@ -21,8 +21,9 @@ from pptx.oxml.ns import qn
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
 
-from agents import inr, material_lines, owner, pct_text
-from checker import allowed_figures, internal_codes, misattributed_figures, unsupported_figures
+import fmt
+from agents import full_year_facts, inr, material_lines, owner, pct_text
+from checker import allowed_figures, internal_codes, misattributed_figures, short_name, unsupported_figures
 from llm import AIError
 from pack import load_pack, open_reason, pack_json
 
@@ -44,6 +45,9 @@ Rules:
 2. Copy amounts exactly as written in the facts (for example "INR 380,000"). Do not calculate new numbers.
 3. Expense above plan is unfavorable; below plan is favorable.
 4. Never write internal codes such as L01.
+5. With cost centres, a country plus an account ("India Distribution") means the account total across cost centres.
+   When a headline is about a single line, name its cost centre as written in the facts.
+6. Each headline must be about its own slide's topic (listed below); do not reuse another slide's message.
 Slides: summary = overall result; bridge = which accounts move budget to actual; top = largest line movements;
 heatmap = where variance is concentrated; offsets = what net figures hide; owners = who holds open items;
 outlook = run-rate impact by timing. Also write exactly 3 summary bullets for the executive summary slide."""
@@ -59,16 +63,11 @@ def _d(value):
 
 
 def _whole(value):
-    return f'INR {abs(_d(value)):,.0f}'
+    return f'INR {fmt.group(_d(value))}'
 
 
 def _compact(value):
-    value = _d(value)
-    sign = '+' if value > 0 else '−' if value < 0 else ''
-    value = abs(value)
-    if value >= 10 ** 6:
-        return f'{sign}{value / 10 ** 6:.2f}m'
-    return f'{sign}{value / 1000:.0f}k' if value >= 1000 else f'{sign}{value:.0f}'
+    return fmt.compact(_d(value))
 
 
 def account_steps(pack):
@@ -125,6 +124,7 @@ def _facts(pack):
         'spread': [e['label'] for e in pack.get('rollups', {}).get('account', []) if 'Material in total only' in e['flags']],
         'owners_with_open_items': [f"{name}: {v['lines']} line(s), {_whole(v['open'])} open" for name, v in owner_table(pack)[:3]],
         'timing': {k: _whole(v) for k, v in split.items()},
+        'full_year': full_year_facts(pack.get('outlook'), _whole),
     }
 
 
@@ -139,16 +139,25 @@ def default_headlines(pack):
         'summary': f"Expenses {_whole(t['variance'])} {word} {basis}; "
                    + (f"{share:.0f}% of material movement explained" if share is not None else 'no material movements'),
         'bridge': (f"{steps[0][0]} is the largest account movement at {_whole(steps[0][1])}" if steps else 'Actual equals plan'),
-        'top': (f"Largest line: {top['label']}, {_whole(top['variance'])} {top['direction'].lower()}" if top
+        'top': (f"{short_name(top)} is the largest line: {_whole(top['variance'])} {top['direction'].lower()}" if top
                 else 'No line meets the thresholds'),
         'heatmap': f"{s['material']} lines need explanation across {len({l['country'] for l in pack['lines']})} countries",
         'offsets': (f"{offsets[0]['label']}: net {_whole(offsets[0]['net'])} hides {_whole(offsets[0]['gross'])} gross movement"
                     if offsets else 'No material offsets hidden inside account totals'),
         'owners': (f"{owners[0][0]} holds the most open variance: {_whole(owners[0][1]['open'])}" if owners
                    else 'No open items'),
-        'outlook': f"Recurring {_whole(split['Recurring'])}, one-off {_whole(split['One-off'])}, "
-                   f"unexplained {_whole(split['Unexplained'])}",
+        'outlook': _outlook_headline(pack, split),
     }
+
+
+def _outlook_headline(pack, split):
+    outlook = pack.get('outlook')
+    if not outlook or not _d(outlook['fy_effect']):
+        return (f"Recurring {_whole(split['Recurring'])}, one-off {_whole(split['One-off'])}, "
+                f"unexplained {_whole(split['Unexplained'])}")
+    word = 'above' if _d(outlook['fy_effect']) > 0 else 'below'
+    return (f"Confirmed items point to {_whole(outlook['fy_effect'])} {word} plan for {outlook['fy']}; "
+            f"{_whole(split['Unexplained'])} still unexplained")
 
 
 def default_summary(pack):
@@ -160,9 +169,14 @@ def default_summary(pack):
 
 def derived_records(pack):
     """Figures the deck shows beyond lines and roll-ups: account bridge steps, owner totals, timing split."""
+    outlook = pack.get('outlook') or {}
+    full_year = [('Full-year Recurring', [outlook['recurring_month'], outlook['recurring_rest'], outlook['recurring_fy'],
+                                          outlook['fy_effect']]),
+                 ('Full-year', [outlook['fy_effect']])] if outlook else []
     return ([(account, [value]) for account, value in account_steps(pack)]
             + [(name, [v['open']]) for name, v in owner_table(pack)]
-            + [(timing, [value]) for timing, value in timing_split(pack).items() if timing != 'Unexplained'])
+            + [(timing, [value]) for timing, value in timing_split(pack).items() if timing != 'Unexplained']
+            + full_year)
 
 
 def _problems(text, allowed, pack):
@@ -287,7 +301,7 @@ def _border(cell, sides):
         tcPr.insert(i, line)
 
 
-NUMERIC = re.compile(r'[+−-]?[\d,]+(\.\d+)?[%km]?|N/A|–')
+NUMERIC = re.compile(r'[+−-]?[\d,]+(\.\d+)?(%|k|m| L| Cr)?|N/A|–')
 
 
 def _table(slide, x, y, w, header, rows, widths, row_h=0.4, size=12, fills=None, colours=None, bolds=None):
@@ -321,6 +335,10 @@ def _table(slide, x, y, w, header, rows, widths, row_h=0.4, size=12, fills=None,
                 font.size = Pt(size)
                 font.color.rgb = (colours(r - 1, c) if colours else None) or INK
                 font.bold = bool(bolds(r - 1, c)) if bolds else False
+                for extra in cell.text_frame.paragraphs[1:]:  # a second line in a cell is a quiet sub-label
+                    extra.alignment = para.alignment
+                    for run in extra.runs:
+                        run.font.size, run.font.bold, run.font.color.rgb, run.font.name = Pt(size - 2), False, SLATE, FONT
                 _border(cell, {'B': (RULE, 0.75)})
     return table
 
@@ -340,8 +358,7 @@ STATUS_COLOUR = {'Confirmed': GREEN, 'Unconfirmed': AMBER, 'Conflicting': RED, '
 
 
 def _signed(value):
-    value = _d(value)
-    return f"{'+' if value > 0 else '−' if value < 0 else ''}{abs(value):,.0f}"
+    return fmt.signed(_d(value))
 
 
 def _tone(value):
@@ -381,12 +398,30 @@ def _colour_series(chart, colours):
         series.format.line.fill.background()
 
 
+def _reason(line, limit=110):
+    """The owner's explanation, shortened to fit a table cell. Pending lines say so."""
+    if not line['note']:
+        return 'Pending from owner'
+    text = ' '.join(line['note']['reason'].split())
+    return text if len(text) <= limit else text[:limit].rsplit(' ', 1)[0] + '…'
+
+
 def _pct(line):
     return f"{abs(_d(line['pct'])):.1f}%" if line['pct'] is not None else 'N/A'
 
 
 def _plain(value):
-    return f'{abs(_d(value)):,.0f}'
+    return fmt.group(_d(value))
+
+
+def _scaled(values):
+    """Chart values in thousands (or lakhs in Indian style), so labels read 280k or 2.80 L."""
+    divisor = fmt.chart_unit()[0]
+    return [float(Decimal(v) / divisor) for v in values]
+
+
+def _unit_format():
+    return '0.00" L"' if fmt.indian() else '#,##0"k"'
 
 
 def _bar(slide, x, y, w, h, parts):
@@ -469,6 +504,7 @@ def _summary_slide(deck, pack, headline, bullets, footer):
 def _bridge_slide(deck, pack, headline, footer):
     slide = _slide(deck, f"{pack['basis'].title()} to actual bridge", headline, footer)
     steps, plan, actual = account_steps(pack), _d(pack['totals']['baseline']), _d(pack['totals']['actual'])
+    big, big_suffix, big_word = fmt.big_unit()
     cats, base, total, up, down = [pack['basis'].title()], [0.0], [float(plan)], [0.0], [0.0]
     running, levels = plan, [plan]
     for account, delta in steps:
@@ -500,7 +536,7 @@ def _bridge_slide(deck, pack, headline, footer):
         series.format.line.fill.background()
     for i in range(len(cats)):
         if total[i]:  # start and end bars: amount inside, white
-            _label(series_list[1].points[i], f'{total[i] / 1e6:.2f}m', WHITE, XL_LABEL_POSITION.INSIDE_END)
+            _label(series_list[1].points[i], f'{Decimal(str(total[i])) / big:.2f}{big_suffix}', WHITE, XL_LABEL_POSITION.INSIDE_END)
         elif up[i] or down[i]:  # steps: amount just below the bar, on the invisible base
             _label(base_series.points[i], _compact(up[i] or -down[i]), RED if up[i] else GREEN, XL_LABEL_POSITION.INSIDE_END)
     low, high = min(levels + [actual]), max(levels + [actual])
@@ -510,7 +546,8 @@ def _bridge_slide(deck, pack, headline, footer):
     axis.minimum_scale = float(max(Decimal(0), ((low - span * Decimal('0.6')) / step).to_integral_value(rounding='ROUND_FLOOR') * step))
     axis.maximum_scale = float(((high + span * Decimal('0.15')) / step).to_integral_value(rounding='ROUND_CEILING') * step)
     _tidy(chart, value_axis=False)
-    _text(slide, 0.6, 6.68, 8.2, 0.25, f'INR millions. Bars start at {axis.minimum_scale / 1e6:.1f}m, not zero, so movements are visible.',
+    start = f'{Decimal(str(axis.minimum_scale)) / big:.2f}{big_suffix}'
+    _text(slide, 0.6, 6.68, 8.2, 0.25, f'{big_word}. Bars start at {start}, not zero, so movements are visible.',
           size=9, color=MUTED)
     # what moved
     _rect(slide, 9.1, 1.95, 3.63, 4.9, MIST, MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.04)
@@ -531,17 +568,26 @@ def _bridge_slide(deck, pack, headline, footer):
 
 def _top_slide(deck, pack, headline, footer):
     slide = _slide(deck, 'Largest movements', headline, footer)
-    lines = material_lines(pack)[:9]
+    lines = material_lines(pack)[:7]
     if not lines:
         _text(slide, 0.6, 2.4, 12, 0.5, 'No line meets the materiality thresholds.', size=16, color=SLATE)
         return
-    rows = [[l['label'], owner(l) if l['attrs'].get('owner') else '–', _signed(l['variance']), _pct(l),
-             '● ' + _status(l), _plain(l['unexplained'])] for _, l in lines]
-    _table(slide, 0.6, 1.95, 12.13, ['LINE', 'OWNER', 'VARIANCE INR', '%', 'STATUS', 'UNEXPLAINED INR'], rows,
-           [4.55, 1.95, 1.6, 1.0, 1.6, 1.43], row_h=0.47, size=12,
-           colours=lambda r, c: (_tone(lines[r][1]['variance']) if c == 2 else STATUS_COLOUR[_status(lines[r][1])] if c == 4
-                                 else AMBER if c == 5 and rows[r][5] != '0' else MUTED if c == 5 else None),
-           bolds=lambda r, c: c in (0, 2))
+
+    def where(line):
+        parts = [line['country'], *line.get('dims', {}).values(), line['attrs'].get('owner')]
+        return ' · '.join(p for p in parts if p)
+
+    rows = [[f"{short_name(l)}\n{where(l)}", _signed(l['variance']), _pct(l), '● ' + _status(l), _plain(l['unexplained']),
+             _reason(l)] for _, l in lines]
+    _table(slide, 0.6, 1.85, 12.13, ['LINE', 'VARIANCE INR', '%', 'STATUS', 'UNEXPLAINED INR', 'REASON GIVEN'], rows,
+           [3.15, 1.35, 0.8, 1.4, 1.35, 4.08], row_h=0.56, size=11,
+           colours=lambda r, c: (_tone(lines[r][1]['variance']) if c == 1 else STATUS_COLOUR[_status(lines[r][1])] if c == 3
+                                 else AMBER if c == 4 and rows[r][4] != '0' else MUTED if c == 4 or (c == 5 and not lines[r][1]['note'])
+                                 else None),
+           bolds=lambda r, c: c in (0, 1))
+    _text(slide, 0.6, 1.85 + 0.56 * (len(rows) + 1) + 0.12, 12.13, 0.25,
+          'Reasons are as supplied by owners; the status shows whether a reviewer has confirmed them. '
+          f"The {len(material_lines(pack))} lines needing explanation are all in the appendix.", size=9, color=MUTED)
 
 
 def _heatmap_slide(deck, pack, headline, footer):
@@ -599,8 +645,8 @@ def _offsets_slide(deck, pack, headline, footer):
     shown = entries[::-1]  # bar charts draw the first category at the bottom
     data.categories = [e['label'] for e in shown]
     # bar charts also draw the first series at the bottom: gross first puts net on top in each pair
-    data.add_series('Gross movement', [float(_d(e['gross'])) for e in shown])
-    data.add_series('Net movement', [float(abs(_d(e['net']))) for e in shown])
+    data.add_series('Gross movement', _scaled(_d(e['gross']) for e in shown))
+    data.add_series('Net movement', _scaled(abs(_d(e['net'])) for e in shown))
     chart = slide.shapes.add_chart(XL_CHART_TYPE.BAR_CLUSTERED, Inches(0.5), Inches(1.95), Inches(7.3), Inches(4.85), data).chart
     chart.has_legend, chart.legend.position, chart.legend.include_in_layout = True, XL_LEGEND_POSITION.TOP, False
     chart.legend.font.size, chart.legend.font.name = Pt(11), FONT
@@ -610,12 +656,12 @@ def _offsets_slide(deck, pack, headline, footer):
     plot.has_data_labels = True
     labels = plot.data_labels
     labels.font.size, labels.font.bold, labels.font.name = Pt(11), True, FONT
-    labels.number_format, labels.number_format_is_linked, labels.position = '#,##0,"k"', False, XL_LABEL_POSITION.OUTSIDE_END
+    labels.number_format, labels.number_format_is_linked, labels.position = _unit_format(), False, XL_LABEL_POSITION.OUTSIDE_END
     _tidy(chart, value_axis=False)
     y = 1.95
     for e in entries[:4]:
         offset = 'Offsetting movements' in e['flags']
-        body = (f"Net {_signed(e['net'])}, gross {_d(e['gross']):,.0f}: offsetting lines hide {_d(e['hidden']):,.0f}." if offset
+        body = (f"Net {_signed(e['net'])}, gross {_plain(e['gross'])}: offsetting lines hide {_plain(e['hidden'])}." if offset
                 else 'Material in total, but no single line crosses the threshold, so every owner explains their share.')
         _rect(slide, 8.1, y, 4.63, 1.13, MIST, MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.06)
         _badge(slide, 8.28, y + 0.18, 0.4, AMBER if offset else TEAL, '⇅' if offset else 'Σ', font_size=14)
@@ -633,7 +679,7 @@ def _owners_slide(deck, pack, headline, footer):
     data = CategoryChartData()
     shown = owners[::-1]
     data.categories = [name for name, _ in shown]
-    data.add_series('Unexplained INR', [float(v['open']) for _, v in shown])
+    data.add_series('Unexplained INR', _scaled(v['open'] for _, v in shown))
     chart = slide.shapes.add_chart(XL_CHART_TYPE.BAR_CLUSTERED, Inches(0.5), Inches(1.95), Inches(5.6), Inches(4.85), data).chart
     chart.has_legend = False
     _colour_series(chart, (AMBER,))
@@ -642,7 +688,7 @@ def _owners_slide(deck, pack, headline, footer):
     plot.has_data_labels = True
     labels = plot.data_labels
     labels.font.size, labels.font.bold, labels.font.name = Pt(11), True, FONT
-    labels.number_format, labels.number_format_is_linked, labels.position = '#,##0,"k"', False, XL_LABEL_POSITION.OUTSIDE_END
+    labels.number_format, labels.number_format_is_linked, labels.position = _unit_format(), False, XL_LABEL_POSITION.OUTSIDE_END
     _tidy(chart, value_axis=False)
     rows = [[name, str(v['lines']), '; '.join(f'{n} × {why.lower()}' for why, n in v['reasons'].items())] for name, v in owners]
     _table(slide, 6.45, 1.95, 6.28, ['OWNER', 'LINES', 'WHY STILL OPEN'], rows, [1.75, 0.75, 3.78], row_h=0.52, size=11,
@@ -652,6 +698,10 @@ def _owners_slide(deck, pack, headline, footer):
 def _outlook_slide(deck, pack, headline, footer):
     slide = _slide(deck, 'Outlook: run-rate impact', headline, footer)
     split = timing_split(pack)
+    outlook = pack.get('outlook') or {}
+    # Signed (+ overspend, − saving) where the pack has it, so a recurring saving is never shown in red.
+    signed = {'Recurring': outlook.get('recurring_month'), 'Timing difference': outlook.get('timing'),
+              'One-off': outlook.get('one_off')}
     cards = [('↻', 'Recurring', split['Recurring'], RED, 'Likely to continue: reflect it in the next forecast'),
              ('⇄', 'Timing difference', split['Timing difference'], SLATE, 'Expected to reverse in later months'),
              ('1', 'One-off', split['One-off'], TEAL, 'No run-rate impact expected'),
@@ -659,25 +709,52 @@ def _outlook_slide(deck, pack, headline, footer):
     width, gap = 2.845, 0.25
     for i, (symbol, label, value, colour, meaning) in enumerate(cards):
         x = 0.6 + i * (width + gap)
-        _rect(slide, x, 1.95, width, 2.05, MIST, MSO_SHAPE.ROUNDED_RECTANGLE)
-        _badge(slide, x + 0.22, 2.15, 0.44, colour, symbol, font_size=15)
-        _text(slide, x + 0.8, 2.24, width - 0.9, 0.3, label.upper(), size=10, bold=True, color=SLATE, spacing=100)
-        _text(slide, x + 0.22, 2.78, width - 0.35, 0.5, _whole(value), size=22, bold=True, color=colour, after=0)
-        _text(slide, x + 0.22, 3.33, width - 0.4, 0.6, meaning, size=11, color=SLATE)
-    _bar(slide, 0.6, 4.25, 12.13, 0.18, [(v, c) for _, _, v, c, _ in cards])
+        _rect(slide, x, 1.85, width, 1.6, MIST, MSO_SHAPE.ROUNDED_RECTANGLE)
+        _badge(slide, x + 0.22, 2.0, 0.4, colour, symbol, font_size=14)
+        _text(slide, x + 0.75, 2.08, width - 0.85, 0.3, label.upper(), size=10, bold=True, color=SLATE, spacing=100)
+        if signed.get(label) is not None and _d(signed[label]):
+            shown, tone = [(_signed(signed[label]), {}), (' INR', {'size': 12, 'bold': False, 'color': SLATE})], _tone(signed[label])
+        else:
+            shown, tone = [(_whole(value), {})], AMBER if label == 'Unexplained' else SLATE
+        _text(slide, x + 0.22, 2.5, width - 0.35, 0.45, [shown], size=20, bold=True, color=tone, after=0)
+        _text(slide, x + 0.22, 2.95, width - 0.4, 0.45, meaning, size=10.5, color=SLATE)
+    _bar(slide, 0.6, 3.62, 12.13, 0.16, [(v, c) for _, _, v, c, _ in cards])
     note = 'Share of material movement by timing (confirmed explanations), with the unexplained remainder.'
     if split['Unknown']:
         note += f" A further {_whole(split['Unknown'])} is confirmed with unknown timing."
-    _text(slide, 0.6, 4.5, 12.13, 0.3, note, size=10, color=MUTED)
+    _text(slide, 0.6, 3.84, 12.13, 0.3, note, size=9.5, color=MUTED)
+    outlook = pack.get('outlook')
+    if outlook:
+        _full_year_strip(slide, outlook)
     actions = [l for _, l in material_lines(pack) if l['note'] and l['note']['action']][:4]
-    _kicker(slide, 0.6, 5.0, 12, 'Actions proposed by reviewers')
+    _kicker(slide, 0.6, 5.55, 12, 'Actions proposed by reviewers')
     if not actions:
-        _text(slide, 0.6, 5.35, 12, 0.4, 'No actions proposed yet.', size=13, color=SLATE)
+        _text(slide, 0.6, 5.88, 12, 0.4, 'No actions proposed yet.', size=12, color=SLATE)
     for i, line in enumerate(actions):
-        x, y = 0.6 + (i % 2) * 6.2, 5.38 + (i // 2) * 0.72
-        _badge(slide, x, y, 0.32, NAVY, str(i + 1), font_size=11)
-        _text(slide, x + 0.45, y - 0.02, 5.6, 0.7, [[(line['label'] + ': ', {'bold': True}), (line['note']['action'], {})]],
-              size=12, color=INK)
+        x, y = 0.6 + (i % 2) * 6.2, 5.88 + (i // 2) * 0.55
+        _badge(slide, x, y, 0.28, NAVY, str(i + 1), font_size=10)
+        _text(slide, x + 0.4, y - 0.01, 5.65, 0.55, [[(short_name(line) + ': ', {'bold': True}), (line['note']['action'], {})]],
+              size=11, color=INK, after=0)
+
+
+def _full_year_strip(slide, outlook):
+    """Full-year effect of confirmed explanations, with the run-rate assumption spelled out."""
+    _rect(slide, 0.6, 4.2, 12.13, 1.05, MIST, MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.08)
+    months = outlook['months_left']
+    _kicker(slide, 0.85, 4.3, 11.6, f"Full-year view · {outlook['fy']} · {months} month{'s' if months != 1 else ''} left")
+    once = _d(outlook['one_off']) + _d(outlook['unknown_timing'])  # unknown timing is counted once, never projected
+    parts = [('One-off (once)' if not _d(outlook['unknown_timing']) else 'One-off or unknown timing (once)', once),
+             (f'Recurring × {months + 1} months', _d(outlook['recurring_fy'])),
+             ('Timing (reverses in year)', Decimal(0)),
+             ('Full-year effect, confirmed', _d(outlook['fy_effect']))]
+    for i, (label, value) in enumerate(parts):
+        x = 0.85 + i * 3.0
+        last = i == len(parts) - 1
+        _text(slide, x, 4.6, 2.85, 0.25, label, size=10, bold=last, color=NAVY if last else SLATE)
+        _text(slide, x, 4.82, 2.85, 0.4, _signed(value) if value else '0', size=17 if last else 15, bold=True,
+              color=_tone(value), after=0)
+    _text(slide, 0.6, 5.27, 12.13, 0.25, 'Assumes recurring items continue at this month\'s amount; timing differences reverse '
+          'within the year. Unexplained variance is not projected. + = above plan (unfavorable). INR.', size=9, color=MUTED)
 
 
 def _appendix_slides(deck, pack, footer):
@@ -713,8 +790,9 @@ def build_deck(pack, headlines, summary, source):
     return output.getvalue()
 
 
-def make_deck(pack, client):
+def make_deck(pack, client, style=None):
     """Locked pack in, PowerPoint out. Never raises for AI problems: standard titles are used instead."""
+    fmt.use(style)
     pack = load_pack(pack_json(pack))  # refuse a pack edited after locking
     headlines, summary, issues, source = draft_headlines(pack, client)
     outline = [('Title', f"Expense variance review: {pack['period']}"), ('Executive summary', headlines['summary']),

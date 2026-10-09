@@ -57,11 +57,11 @@ class AppTests(unittest.TestCase):
     def test_uploaded_values_replace_demo_and_label(self):
         app = self.new_app()
         changed = sample_csv('account').replace('2100000', '2200000', 1)
-        app.file_uploader[0].upload('changed.csv', changed.encode(), 'text/csv').run()
+        app.sidebar.file_uploader[0].upload('changed.csv', changed.encode(), 'text/csv').run()
         self.assertEqual(self.metrics(app)['Actual expense · INR'], '12,480,000')
         self.assertIn('Uploaded data is loaded', app.info[0].value)
         self.assertFalse(any('Synthetic demo data is loaded' in x.value for x in app.info))
-        app.file_uploader[0].clear().run()
+        app.sidebar.file_uploader[0].clear().run()
         self.assertEqual(self.metrics(app)['Actual expense · INR'], '12,380,000')
         self.assertIn('Synthetic demo data', app.info[0].value)
 
@@ -76,7 +76,7 @@ class AppTests(unittest.TestCase):
         for name, (data, message) in invalid.items():
             with self.subTest(name=name):
                 app = self.new_app()
-                app.file_uploader[0].upload(name, data, 'text/csv').run()
+                app.sidebar.file_uploader[0].upload(name, data, 'text/csv').run()
                 self.assertEqual(len(app.exception), 0)
                 self.assertEqual(len(app.metric), 0)
                 self.assertEqual(len(app.error), 1)
@@ -107,7 +107,7 @@ class AppTests(unittest.TestCase):
         text = ('month,country,cost_center,project,account,currency,actual,budget,forecast\n'
                 '2026-08,India,IN-OPS,Alpha,Travel,INR,150000,100000,100000\n'
                 '2026-08,India,IN-OPS,Beta,Travel,INR,90000,100000,100000\n')
-        app.file_uploader[0].upload('projects.csv', text.encode(), 'text/csv').run()
+        app.sidebar.file_uploader[0].upload('projects.csv', text.encode(), 'text/csv').run()
         self.assertEqual(len(app.exception), 0)
         level = next(x for x in app.multiselect if x.label == 'Analyse by')
         self.assertEqual(level.value, ['cost_center', 'project'])
@@ -118,7 +118,7 @@ class AppTests(unittest.TestCase):
     def test_two_simulated_sessions_keep_uploads_separate(self):
         first = self.new_app()
         changed = sample_csv('account').replace('2100000', '2200000', 1)
-        first.file_uploader[0].upload('changed.csv', changed.encode(), 'text/csv').run()
+        first.sidebar.file_uploader[0].upload('changed.csv', changed.encode(), 'text/csv').run()
         second = self.new_app()
         self.assertEqual(self.metrics(first)['Actual expense · INR'], '12,480,000')
         self.assertEqual(self.metrics(second)['Actual expense · INR'], '12,380,000')

@@ -40,11 +40,41 @@ def _q(value):
     return value.quantize(Decimal('.01')) if value is not None else None
 
 
-def build_pack(rows, baseline, amount_threshold, pct_threshold, notes, total_thresholds=None):
+MONTHS = ('January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
+          'November', 'December')
+
+
+def fy_outlook(lines, period, fy_start):
+    """Full-year effect of confirmed explanations, on a stated run-rate assumption.
+
+    Recurring items continue at this month's amount for the rest of the financial year; timing differences
+    reverse within the year; one-offs (and confirmed items of unknown timing) happen once. Unexplained
+    variance is shown but never projected. Amounts are signed: positive = above plan (unfavorable).
+    """
+    year, month = (int(p) for p in period.split('-'))
+    months_left = (fy_start - 1 - month) % 12  # months after this one, up to the financial year end
+    start_year = year if month >= fy_start else year - 1
+    label = f'FY{start_year}' if fy_start == 1 else f'FY{start_year}-{(start_year + 1) % 100:02d}'
+    by_timing = {t: Decimal('0') for t in ('One-off', 'Recurring', 'Timing difference', 'Unknown')}
+    for line in lines:
+        explained = Decimal(str(line['explained'] or 0))  # Decimal while building, text in a saved pack
+        if line['material'] and explained:
+            sign = 1 if Decimal(str(line['variance'])) > 0 else -1
+            by_timing[line['note']['timing']] += sign * explained
+    recurring = by_timing['Recurring']
+    return {'fy': label, 'fy_start': MONTHS[fy_start - 1], 'months_left': months_left,
+            'one_off': by_timing['One-off'], 'unknown_timing': by_timing['Unknown'],
+            'timing': by_timing['Timing difference'], 'recurring_month': recurring,
+            'recurring_rest': recurring * months_left, 'recurring_fy': recurring * (months_left + 1),
+            'fy_effect': by_timing['One-off'] + by_timing['Unknown'] + recurring * (months_left + 1)}
+
+
+def build_pack(rows, baseline, amount_threshold, pct_threshold, notes, total_thresholds=None, fy_start=4):
     """Consolidated pack for every validated row of the month, regardless of on-screen filters.
 
     amount/pct thresholds apply to each line. total_thresholds apply to country x account totals
-    when lines are finer than that (for example by cost centre).
+    when lines are finer than that (for example by cost centre). fy_start is the month (1-12)
+    the financial year begins, used only for the full-year outlook.
     """
     grain = list(rows[0].get('dims', ()))
     total_thresholds = total_thresholds if grain else None
@@ -80,6 +110,7 @@ def build_pack(rows, baseline, amount_threshold, pct_threshold, notes, total_thr
         'summary': {'rows': len(lines), 'material': sum(l['material'] for l in lines),
                     'explained': explained, 'unexplained': unexplained, 'open_items': open_items},
         'lines': lines,
+        'outlook': fy_outlook(lines, rows[0]['month'], fy_start),
         'rollups': _rollups(lines, grain, total_thresholds, hidden_floor)})
     return {**content, 'content_hash': _fingerprint(content)}
 
@@ -153,6 +184,19 @@ def _money(text):
     return Decimal(text) if text is not None else None
 
 
+def _outlook_rows(outlook):
+    if not outlook:
+        return []
+    return [(f"Full-year view ({outlook['fy']}): months left after this one", outlook['months_left']),
+            ('Full-year view: one-off (confirmed)', _money(outlook['one_off'])),
+            ('Full-year view: recurring this month (confirmed)', _money(outlook['recurring_month'])),
+            ('Full-year view: recurring for the remaining months', _money(outlook['recurring_rest'])),
+            ('Full-year view: timing differences (expected to reverse)', _money(outlook['timing'])),
+            ('Full-year view: effect of confirmed explanations', _money(outlook['fy_effect'])),
+            ('Full-year view: assumption', 'Recurring items continue at this month\'s amount; timing differences reverse '
+                                           'within the year; unexplained variance is not projected. + = above plan.')]
+
+
 def pack_excel(pack):
     book = Workbook()
     bold, money, pct = Font(bold=True), '#,##0.00', '0.0%'
@@ -185,6 +229,7 @@ def pack_excel(pack):
         ('Materiality of account totals: %', _money(pack['thresholds']['total_pct']) if pack['thresholds']['total_pct'] else 'Same as line'),
         ('Material movements', s['material']), ('Explained (confirmed)', _money(s['explained'])),
         ('Unexplained', _money(s['unexplained'])), ('Open items', s['open_items']),
+        *_outlook_rows(pack.get('outlook')),
         ('Locked at (UTC)', pack.get('locked_at', 'Not locked')), ('Pack fingerprint', pack['content_hash'])])
     for cell in book['Summary']['B'][1:]:
         if isinstance(cell.value, Decimal):
