@@ -163,14 +163,34 @@ class WriterTests(unittest.TestCase):
         self.assertEqual((result['issues'], result['attempts']), ([], 2))
         self.assertIn('"413,000.00" is not in the pack', client.calls[1][1])
 
-    def test_failing_twice_blocks_the_draft(self):
+    def test_failing_twice_publishes_only_what_passes(self):
         bad = good_reply(self.pack)
+        dropped = bad['lines'][0]['line_id']
         bad['lines'] = bad['lines'][1:]
         bad['executive_summary'][1] = 'See L03 for details.'
-        result = write_commentary(self.pack, FakeClient(bad, bad))
-        self.assertTrue(any('missing commentary' in i for i in result['issues']))
-        self.assertTrue(any('internal code L03' in i for i in result['issues']))
-        self.assertIn('FAILED NUMBER CHECK', result['markdown'])
+        client = FakeClient(bad, bad)
+        result = write_commentary(self.pack, client)
+        self.assertEqual(len(client.calls), 2)  # one retry with the problems listed
+        self.assertEqual(result['issues'], [])  # what is published ties out
+        self.assertEqual(result['replaced'], 2)
+        notes = {n['where']: n for n in result['notes']}
+        self.assertIn('missing commentary', notes[dict(material_lines(self.pack))[dropped]['label']]['problems'][0])
+        self.assertEqual(notes['Executive summary, bullet 2']['ai_text'], 'See L03 for details.')
+        for output in (result['markdown'], result['html']):
+            self.assertNotIn('See L03', output)
+            self.assertNotIn('FAILED', output)
+        self.assertIn('2 AI item(s) that failed the check use standard wording instead', result['markdown'])
+        self.assertTrue(result['reply']['lines'][0]['commentary'].startswith('Expense is INR'))
+
+    def test_ai_down_gives_standard_commentary(self):
+        result = write_commentary(self.pack, FakeClient(AIError('Could not reach Ollama.')))
+        self.assertEqual((result['issues'], result['ai_error']), ([], 'Could not reach Ollama.'))
+        explained = [l for _, l in material_lines(self.pack) if l['note']]
+        self.assertEqual(len(result['reply']['lines']), len(explained))
+        conflicting = next(e['commentary'] for e, (_, l) in zip(result['reply']['lines'],
+                                                                [x for x in material_lines(self.pack) if x[1]['note']])
+                           if l['note']['status'] == 'Conflicting explanations')
+        self.assertIn('The explanations conflict', conflicting)
 
     def test_edited_pack_is_refused(self):
         tampered = json.loads(pack_json(self.pack))
@@ -185,8 +205,10 @@ class WriterTests(unittest.TestCase):
         self.assertTrue(any(f['quality'] == 'vague' for f in findings))
         self.assertEqual(write_commentary(self.pack, client)['issues'], [])
         other = lock_pack(build_pack(load_csv(sample_csv()), 'forecast', D('50000'), D('5'), {}))
-        with self.assertRaises(AIError):
-            write_commentary(other, client)
+        fallback = write_commentary(other, client)  # no recording for this pack: standard wording, still clean
+        self.assertIn('Demo mode only has recorded answers', fallback['ai_error'])
+        self.assertEqual((fallback['issues'], fallback['model']), ([], 'standard wording (AI unavailable)'))
+        self.assertIn('Written with standard wording by the engine', fallback['markdown'])
 
 
 
@@ -270,10 +292,12 @@ class ReportTests(unittest.TestCase):
     def test_failed_draft_and_escaping(self):
         bad = good_reply(self.pack)
         bad['executive_summary'][0] = '<script>alert(1)</script> INR 999.00'
+        bad['executive_summary'][1] = '<b>Net result</b> as planned.'
         page = write_commentary(self.pack, FakeClient(bad, bad))['html']
-        self.assertIn('✖ FAILED NUMBER CHECK', page)
-        self.assertNotIn('<script>', page)
-        self.assertIn('&lt;script&gt;', page)
+        self.assertNotIn('FAILED NUMBER CHECK', page)
+        self.assertNotIn('999.00', page)  # the failing bullet is removed, not shown
+        self.assertNotIn('<b>Net result', page)
+        self.assertIn('&lt;b&gt;Net result&lt;/b&gt;', page)  # passing text is still HTML-escaped
 
 
 if __name__ == '__main__':

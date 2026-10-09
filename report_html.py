@@ -168,7 +168,7 @@ def full_year_html(outlook):
             '+ = above plan (unfavorable). INR.</div></div>')
 
 
-def commentary_html(pack, reply, issues, model):
+def commentary_html(pack, reply, issues, model, replaced=0):
     t, s, basis = pack['totals'], pack['summary'], pack['basis']
     written = {e['line_id']: e['commentary'] for e in reply['lines']}
     net_label, net_colour = _direction(t['direction'])
@@ -222,8 +222,9 @@ def commentary_html(pack, reply, issues, model):
             f'{escape(l["note"]["action"])}</div>' for l in actions) + '</div>')
     check = (f'<span style="color:{GREEN};font-weight:700">✔ Tick-and-tie passed</span>' if not issues
              else f'<span style="color:{RED};font-weight:700">✖ Tick-and-tie failed</span>')
+    from agents.writer import source_note  # late import: the writer imports this module
     out.append(f'<div style="margin-top:18px;font-size:12px;color:{GREY};line-height:1.6">{check} · Every figure checked against '
-               f'locked pack <code>{escape(pack["content_hash"][:12])}</code> · Drafted by AI ({escape(model)}) · '
+               f'locked pack <code>{escape(pack["content_hash"][:12])}</code> · {escape(source_note(model, replaced))} · '
                'Explanations are reviewer-supplied. Review before use.</div></div>')
     return ''.join(out)
 

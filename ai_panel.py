@@ -148,11 +148,22 @@ def writer_section(locked, client, style=None):
     if 'error' in result:
         st.error(result['error'])
         return
-    if result['issues']:
-        st.error('Failed the tick-and-tie after a retry, so download is blocked:\n' + '\n'.join(f'- {i}' for i in result['issues']))
+    if result['issues']:  # only if the engine's own wording failed: a bug, so never publish
+        st.error('The commentary did not tie to the pack, so download is blocked. Please report this:\n'
+                 + '\n'.join(f'- {i}' for i in result['issues']))
+    elif result.get('ai_error'):
+        st.info(f"The AI could not run ({result['ai_error']}), so the commentary uses standard wording written by the "
+                'engine from the locked pack. Every figure ties.')
     else:
-        retry = ' after one correction' if result['attempts'] > 1 else ''
-        st.success(f"Every figure ties to the locked pack{retry}. Drafted by {result['model']}.")
+        swapped = (f" {result['replaced']} AI item(s) failed the check and were replaced with standard wording."
+                   if result['replaced'] else '')
+        st.success(f"Every figure ties to the locked pack. Drafted by {result['model']}.{swapped}")
+    if result.get('notes'):
+        with st.expander(f"Reviewer details: what the AI got wrong ({len(result['notes'])}) · on screen only, not in downloads"):
+            for note in result['notes']:
+                st.markdown(f"**{note['where']}** · {note['action']}\n" + '\n'.join(f'- {p}' for p in note['problems']))
+                if note['ai_text']:
+                    st.caption('AI draft (not used): ' + note['ai_text'])
     st.html(result['html'])
     if not result['issues']:
         stem = f"cfo_commentary_{locked['period']}_{locked['basis']}"
@@ -169,8 +180,9 @@ def deck_section(locked):
         return
     with st.container(border=True, key='card_deck'):
         st.markdown(f"**🖥️ CFO deck** · {deck['slides']} slides · headlines: {deck['source']}")
-        for issue in deck['issues']:
-            st.warning(issue)
+        if deck['issues']:
+            with st.expander(f"Reviewer details: AI headlines replaced ({len(deck['issues'])}) · on screen only, not in the deck"):
+                st.markdown('\n'.join(f'- {issue}' for issue in deck['issues']))
         st.markdown('\n'.join(f'{i}. **{kicker}**: {headline}' for i, (kicker, headline) in enumerate(deck['outline'], 1)))
         st.download_button('Download CFO deck (PowerPoint)', deck['pptx'],
                            f"cfo_deck_{locked['period']}_{locked['basis']}.pptx",

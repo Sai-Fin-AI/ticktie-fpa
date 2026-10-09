@@ -4,10 +4,11 @@ The AI writes wording for explained lines only. Unexplained lines, open items an
 assembled by code from the pack, and every AI sentence is tick-and-tied before it can be downloaded.
 """
 import json
+import re
 from decimal import Decimal
 
 import fmt
-from agents import (cost_centre, full_year_facts, grouped_lines, inr, line_facts, material_lines, offset_sentences,
+from agents import (cost_centre, coverage, full_year_facts, grouped_lines, inr, line_facts, material_lines, offset_sentences,
                     owner)
 from checker import (account_total_confusion, short_name, allowed_figures, check_line_text, internal_codes, misattributed_figures,
                      unsupported_figures)
@@ -68,54 +69,159 @@ def driver_sentences(pack, limit=3):
             f"{inr(l['variance'])} {l['direction'].lower()} variance" for l in lines]
 
 
-def check_draft(pack, reply):
-    """Return a list of plain-language problems. Empty means the draft ties out."""
-    allowed, issues = allowed_figures(pack), []
+def _findings(pack, reply):
+    """Problems per item: {('summary', 1): [...], ('line', 'L03'): [...], ('draft', None): [...]}."""
+    allowed, found = allowed_figures(pack), {}
+    add = lambda key, problems: found.setdefault(key, []).extend(problems) if problems else None
     lines = dict(material_lines(pack))
     expected = {i for i, l in lines.items() if l['note']}
     seen = [entry['line_id'] for entry in reply['lines']]
     for line_id in sorted(expected - set(seen)):
-        issues.append(f'{line_id}: missing commentary')
+        add(('line', line_id), ['missing commentary'])
     for line_id in sorted(set(seen) - expected):
-        issues.append(f'{line_id}: commentary for a line that has no explanation')
-    for line_id in {i for i in seen if seen.count(i) > 1}:
-        issues.append(f'{line_id}: written more than once')
+        add(('draft', None), [f'{line_id}: commentary for a line that has no explanation'])
+    for line_id in sorted({i for i in seen if seen.count(i) > 1}):
+        add(('draft', None), [f'{line_id}: written more than once'])
     for i, bullet in enumerate(reply['executive_summary'], 1):
-        for figure in unsupported_figures(bullet, allowed):
-            issues.append(f'Summary bullet {i}: "{figure}" is not in the pack')
-        for code in internal_codes(bullet):
-            issues.append(f'Summary bullet {i}: uses the internal code {code}; name the country and account instead')
-        issues += [f'Summary bullet {i}: {problem}' for problem in misattributed_figures(bullet, pack)]
+        add(('summary', i), [f'"{figure}" is not in the pack' for figure in unsupported_figures(bullet, allowed)])
+        add(('summary', i), [f'uses the internal code {code}; name the country and account instead' for code in internal_codes(bullet)])
+        add(('summary', i), misattributed_figures(bullet, pack))
     for entry in reply['lines']:
         line = lines.get(entry['line_id'])
         if line is None or not line['note']:
             continue
-        for figure in unsupported_figures(entry['commentary'], allowed):
-            issues.append(f"{entry['line_id']}: \"{figure}\" is not in the pack")
-        for code in internal_codes(entry['commentary']):
-            issues.append(f"{entry['line_id']}: uses the internal code {code}")
-        issues += [f"{entry['line_id']}: {problem}" for problem in check_line_text(entry['commentary'], line)]
-        issues += [f"{entry['line_id']}: {problem}" for problem in account_total_confusion(entry['commentary'], line, pack)]
-    return issues
+        text, key = entry['commentary'], ('line', entry['line_id'])
+        add(key, [f'"{figure}" is not in the pack' for figure in unsupported_figures(text, allowed)])
+        add(key, [f'uses the internal code {code}' for code in internal_codes(text)])
+        add(key, check_line_text(text, line))
+        add(key, account_total_confusion(text, line, pack))
+    return found
+
+
+def check_draft(pack, reply):
+    """Return a list of plain-language problems. Empty means the draft ties out."""
+    out = []
+    for (kind, item), problems in _findings(pack, reply).items():
+        prefix = f'Summary bullet {item}: ' if kind == 'summary' else f'{item}: ' if kind == 'line' else ''
+        out += [prefix + p for p in problems]
+    return out
+
+
+STATUS_LEADS = {'Confirmed by reviewer': 'Reason confirmed by the reviewer',
+                'Unconfirmed': "The owner's explanation is unconfirmed",
+                'Conflicting explanations': 'The explanations conflict'}
+
+
+def standard_line(pack, line):
+    """Engine-written commentary for one explained line: the reviewer's words plus the pack's figures."""
+    variance = Decimal(line['variance'])
+    move = f"Expense is {inr(variance)} {'above' if variance > 0 else 'below'} {pack['basis']} ({line['direction'].lower()})."
+    lead = STATUS_LEADS[line['note']['status']]
+    reason = ' '.join(line['note']['reason'].split()).rstrip('.')
+    allowed = allowed_figures(pack)
+    for text in (f'{move} {lead}: {reason}. {coverage(line)}', f'{move} {lead}. {coverage(line)}'):
+        if not (unsupported_figures(text, allowed) or check_line_text(text, line) or account_total_confusion(text, line, pack)):
+            return text
+    return f'{move} {lead}. {coverage(line)}'
+
+
+def standard_summary(pack):
+    t, s, basis = pack['totals'], pack['summary'], pack['basis']
+    word = 'above' if Decimal(t['variance']) > 0 else 'below'
+    bullets = [f"Expenses were {inr(t['variance'])} {word} {basis} ({t['direction'].lower()}): actual {inr(t['actual'])} "
+               f"against {inr(t['baseline'])}.",
+               f"Confirmed explanations cover {inr(s['explained'])}; {inr(s['unexplained'])} remains unexplained "
+               f"across {s['open_items']} open item(s)."]
+    offsets = offset_sentences(pack)
+    if offsets:
+        bullets.append(offsets[0])
+    return bullets
+
+
+def _plain_problem(problem, labels):
+    """Reviewer-facing wording: line names instead of internal IDs."""
+    for line_id, label in labels.items():
+        problem = re.sub(rf'\b{line_id}\b', label, problem)
+    return problem
+
+
+def clean_draft(pack, reply):
+    """Keep AI sentences that pass every check; replace the rest with engine-written wording.
+
+    Returns (clean reply, notes for the reviewer: where, action, problems, the AI's original text).
+    Nothing that failed a check is ever published.
+    """
+    found = _findings(pack, reply)
+    lines = dict(material_lines(pack))
+    labels = {i: l.get('label', f"{l['country']} | {l['account']}") for i, l in lines.items()}
+    expected = [i for i, l in lines.items() if l['note']]
+    written, notes = {}, []
+    for entry in reply['lines']:
+        if entry['line_id'] in expected and entry['line_id'] not in written:
+            written[entry['line_id']] = entry['commentary'].strip()
+    for line_id in expected:
+        problems = found.get(('line', line_id))
+        if problems:
+            notes.append({'where': labels[line_id], 'action': 'Replaced with standard wording',
+                          'problems': [_plain_problem(p, labels) for p in problems], 'ai_text': written.get(line_id, '')})
+            written[line_id] = standard_line(pack, lines[line_id])
+    bullets = []
+    for i, bullet in enumerate(reply['executive_summary'], 1):
+        problems = found.get(('summary', i))
+        if problems:
+            notes.append({'where': f'Executive summary, bullet {i}', 'action': 'Removed',
+                          'problems': [_plain_problem(p, labels) for p in problems], 'ai_text': bullet.strip()})
+        else:
+            bullets.append(bullet.strip())
+    if len(bullets) < 2:
+        bullets = standard_summary(pack)[:max(2, 3 - len(bullets))] + bullets
+    extra = found.get(('draft', None), [])
+    if extra:
+        notes.append({'where': 'Draft', 'action': 'Ignored', 'problems': [_plain_problem(p, labels) for p in extra], 'ai_text': ''})
+    return {'executive_summary': bullets, 'lines': [{'line_id': i, 'commentary': written[i]} for i in expected]}, notes
 
 
 def write_commentary(pack, client, style=None):
-    """Draft, check, retry once with the problems listed, check again. Raises AIError if the AI cannot run."""
+    """Draft, check, retry once with the problems listed, check again, then publish only what passes.
+
+    AI sentences that still fail are replaced with engine-written wording. If the AI cannot run at all,
+    the whole commentary uses engine-written wording, so there is always a clean, downloadable draft.
+    """
     fmt.use(style)
     pack = load_pack(pack_json(pack))  # refuse a pack edited after locking
     facts = json.dumps(_facts(pack), ensure_ascii=False, indent=1)
-    reply = client.complete('commentary', pack['content_hash'], SYSTEM, facts, SCHEMA)
-    issues, attempts = check_draft(pack, reply), 1
-    if issues:
-        retry = (facts + '\n\nYour previous draft failed these checks. Fix them and keep to the facts:\n- ' + '\n- '.join(issues))
-        reply = client.complete('commentary-retry', pack['content_hash'], SYSTEM, retry, SCHEMA)
-        issues, attempts = check_draft(pack, reply), 2
-    return {'reply': reply, 'issues': issues, 'attempts': attempts, 'model': client.label,
-            'markdown': to_markdown(pack, reply, issues, client.label),
-            'html': commentary_html(pack, reply, issues, client.label)}
+    ai_error, attempts = None, 0
+    try:
+        reply = client.complete('commentary', pack['content_hash'], SYSTEM, facts, SCHEMA)
+        issues, attempts = check_draft(pack, reply), 1
+        if issues:
+            retry = (facts + '\n\nYour previous draft failed these checks. Fix them and keep to the facts:\n- ' + '\n- '.join(issues))
+            reply = client.complete('commentary-retry', pack['content_hash'], SYSTEM, retry, SCHEMA)
+            attempts = 2
+        draft = reply
+        reply, notes = clean_draft(pack, reply)
+        source = f'AI ({client.label})'
+    except AIError as error:
+        ai_error, draft, notes = str(error), None, []
+        reply = {'executive_summary': standard_summary(pack),
+                 'lines': [{'line_id': i, 'commentary': standard_line(pack, l)} for i, l in material_lines(pack) if l['note']]}
+        source = 'standard wording (AI unavailable)'
+    issues = check_draft(pack, reply)  # always empty unless the engine's own wording is wrong: a bug, shown as such
+    replaced = sum(n['where'] != 'Draft' for n in notes)
+    return {'reply': reply, 'draft': draft, 'issues': issues, 'notes': notes, 'replaced': replaced,
+            'attempts': attempts, 'model': source, 'ai_error': ai_error,
+            'markdown': to_markdown(pack, reply, issues, source, replaced),
+            'html': commentary_html(pack, reply, issues, source, replaced)}
+
+def source_note(model, replaced):
+    """Footer wording: who wrote the text and how many AI sentences were swapped for standard wording."""
+    if model.startswith('standard'):
+        return 'Written with standard wording by the engine (AI unavailable).'
+    swap = f' {replaced} AI item(s) that failed the check use standard wording instead.' if replaced else ''
+    return f'Drafted by {model}.{swap}'
 
 
-def to_markdown(pack, reply, issues, model):
+def to_markdown(pack, reply, issues, model, replaced=0):
     basis, lines = pack['basis'], material_lines(pack)
     written = {e['line_id']: e['commentary'] for e in reply['lines']}
     out = [f"# CFO commentary: {pack['period']} expenses vs {basis}", '']
@@ -142,6 +248,6 @@ def to_markdown(pack, reply, issues, model):
         out += ['## Actions proposed by reviewers', ''] + [f"- [ ] {l.get('label', l['country'] + ' | ' + l['account'])}: {a}"
                                                            for l, a in actions] + ['']
     status = 'passed' if not issues else 'FAILED'
-    out += ['---', f"Drafted by AI ({model}) from locked pack `{pack['content_hash'][:12]}`. "
+    out += ['---', f"{source_note(model, replaced)} Locked pack `{pack['content_hash'][:12]}`. "
                    f"Figures tick-and-tied to the pack: {status}. Explanations are reviewer-supplied. Review before use."]
     return '\n'.join(out) + '\n'
