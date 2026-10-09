@@ -70,7 +70,7 @@ class CheckerTests(unittest.TestCase):
                    '7.5%', 'invoice FR-0812', 'in FY27', 'cost centre CC-1001', 'August 2026', 'INR 2,40,000'):
             with self.subTest(ok=ok):
                 self.assertEqual(unsupported_figures(ok, self.allowed), [])
-        for bad in ('INR 213,000', '23%', '3 crore', 'INR 199,999.99'):
+        for bad in ('INR 213,000', '23%', '4 crore', 'INR 199,999.99'):  # 3 crore is now the sales budget
             with self.subTest(bad=bad):
                 self.assertTrue(unsupported_figures(bad, self.allowed))
 
@@ -272,7 +272,8 @@ class ReportTests(unittest.TestCase):
         page = write_commentary(self.pack, FakeClient(good_reply(self.pack)))['html']
         for expected in ('▲ Unfavorable', '▼ Favorable', '✅ Confirmed', '🟡 Unconfirmed', '🔴 Conflicting',
                          '⚪ Explanation pending', '① One-off', 'Explained INR 180,000.00 (75%)', 'Fully explained',
-                         'Not counted until resolved', 'Open items (10)', '☐', '✔ Tick-and-tie passed', 'INR 12,380,000',
+                         'Not counted until resolved', 'Open items (10)', '☐', '✔ Tick-and-tie passed', 'INR 2,265,000',
+                         'Profit and loss', 'Gross margin', 'EBITDA margin',
                          'Where the variance sits', '👤 Arjun Mehta', '⇅ Offsetting movements',
                          'Σ Part of a material account total', 'offsets hide INR 80,000.00'):
             self.assertIn(expected, page)
@@ -284,7 +285,7 @@ class ReportTests(unittest.TestCase):
         self.assertIn('+240k', grid)
         self.assertIn('−90k', grid)
         self.assertEqual(grid.count('outline:2px solid'), 13)
-        self.assertIn('+380k', grid)
+        self.assertIn('−210k', grid)  # P&L demo: the grand net is profit impact (net profit 210k below budget)
         india = heatmap_html(self.pack, 'India')
         self.assertNotIn('Singapore', india)
         self.assertIn('IN-OPS India Operations', india)

@@ -19,13 +19,15 @@ IGNORE, EXTRA = 'ignore', 'extra'
 ROLE_LABELS = {'month': 'Month', 'country': 'Country / entity', CC: 'Cost centre', 'account': 'GL account',
                'currency': 'Currency', 'amount': 'Amount', 'actual': 'Actual amount', 'budget': 'Budget amount',
                'forecast': 'Forecast amount', 'cc_name': 'Cost centre name', 'function': 'Function', 'owner': 'Owner',
-               EXTRA: 'Extra dimension', IGNORE: 'Ignore'}
+               'pl_line': 'P&L line', EXTRA: 'Extra dimension', IGNORE: 'Ignore'}
 BASE_ROLES = ('month', 'country', CC, 'account', 'currency')
-ROLES = {'combined': BASE_ROLES + ('actual', 'budget', 'forecast') + CC_ATTRS + (EXTRA, IGNORE),
+ROLES = {'combined': BASE_ROLES + ('actual', 'budget', 'forecast') + CC_ATTRS + ('pl_line', EXTRA, IGNORE),
+         'pl': BASE_ROLES + ('actual', 'budget', 'forecast') + CC_ATTRS + ('pl_line', EXTRA, IGNORE),
          'actuals': BASE_ROLES + ('amount',) + CC_ATTRS + (EXTRA, IGNORE),
          'budget': BASE_ROLES + ('amount', EXTRA, IGNORE),
          'forecast': BASE_ROLES + ('amount', EXTRA, IGNORE)}
 REQUIRED = {'combined': ('month', 'account', 'actual', 'budget', 'forecast'),
+            'pl': ('month', 'account', 'actual', 'budget', 'forecast'),
             'actuals': ('month', 'account', 'amount'), 'budget': ('month', 'account', 'amount'),
             'forecast': ('month', 'account', 'amount')}
 ALIASES = {
@@ -43,6 +45,8 @@ ALIASES = {
     'cc_name': {'ccname', 'costcentername', 'costcentrename', 'ccdescription', 'costcenterdescription'},
     'function': {'function', 'department', 'dept'},
     'owner': {'owner', 'ccowner', 'budgetholder', 'budgetowner', 'manager'},
+    'pl_line': {'plline', 'pnlline', 'pandlline', 'pllinename', 'plcategory', 'linetype', 'pnlcategory', 'plgroup',
+                'pnlgroup', 'statementline'},
     EXTRA: {'project', 'region', 'businessunit', 'bu', 'product', 'productline', 'channel', 'segment', 'brand',
             'location', 'site', 'division', 'program', 'programme'},
 }
@@ -167,7 +171,7 @@ def _write(rows, dims, attrs):
 
 def combined_csv(headers, rows, roles, name, country='', currency='INR'):
     """One file with actual, budget and forecast columns, rewritten in the standard layout."""
-    dims, attrs = _dims(headers, roles), [a for a in CC_ATTRS if a in roles]
+    dims, attrs = _dims(headers, roles), [a for a in CC_ATTRS + ('pl_line',) if a in roles]
     extra_cols = {h: _column(h) for h, r in zip(headers, roles) if r == EXTRA}
     out = []
     for line, row in enumerate(rows, 2):

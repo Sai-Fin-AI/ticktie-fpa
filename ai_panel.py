@@ -111,11 +111,11 @@ def interviewer_section(pack, client):
 HEADLINES = ('Standard, written by the engine', 'AI-written, tick-and-tied')
 
 
-def run_agents(locked, client, deck_client=None, style=None):
+def run_agents(locked, client, deck_client=None, style=None, bridge=None):
     """Commentary writer and deck builder read the same locked pack, so they run side by side."""
     with ThreadPoolExecutor(max_workers=2) as pool:
         commentary = pool.submit(write_commentary, locked, client, style)
-        deck = pool.submit(make_deck, locked, deck_client, style)
+        deck = pool.submit(make_deck, locked, deck_client, style, bridge)
         try:
             written = {'hash': locked['content_hash'], **commentary.result()}
         except (AIError, ValueError) as error:
@@ -135,10 +135,11 @@ def writer_section(locked, client, style=None):
     if b1.button('Draft CFO commentary and deck', type='primary'):
         with st.spinner('Two agents at work. A local model can take a minute or two.'):
             st.session_state.ai_commentary, st.session_state.ai_deck = run_agents(
-                locked, client, client if headlines == HEADLINES[1] else None, style)
+                locked, client, client if headlines == HEADLINES[1] else None, style, st.session_state.get('bridge_measure'))
     if b2.button('🖥️ CFO deck only (PowerPoint, no AI wait)',
                  help='Builds the deck straight away with standard headlines written by the engine.'):
-        st.session_state.ai_deck = {'hash': locked['content_hash'], **make_deck(locked, None, style)}
+        st.session_state.ai_deck = {'hash': locked['content_hash'],
+                                    **make_deck(locked, None, style, st.session_state.get('bridge_measure'))}
         fmt.use(style)  # make_deck ran in this thread; keep the screen in the chosen style
     deck_section(locked)
     result = st.session_state.get('ai_commentary')

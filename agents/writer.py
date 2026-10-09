@@ -8,6 +8,7 @@ import re
 from decimal import Decimal
 
 import fmt
+from finance import MARGIN_NAMES
 from agents import (cost_centre, coverage, full_year_facts, grouped_lines, inr, line_facts, material_lines, offset_sentences,
                     owner)
 from checker import (account_total_confusion, short_name, allowed_figures, check_line_text, internal_codes, misattributed_figures,
@@ -19,14 +20,14 @@ from report_html import commentary_html
 DOTS = {'Unfavorable': '🔴 ▲', 'Favorable': '🟢 ▼', 'On plan': '⚪ ●'}
 STATUS_TAGS = {'Confirmed by reviewer': '✅ Confirmed', 'Unconfirmed': '🟡 Unconfirmed', 'Conflicting explanations': '🔴 Conflicting'}
 
-SYSTEM = """You are an FP&A analyst drafting month-end expense variance commentary for a CFO review.
+SYSTEM = """You are an FP&A analyst drafting month-end variance commentary (expenses, or a full P&L) for a CFO review.
 Rules, in order of importance:
 1. Use ONLY the facts provided. Never add causes, drivers, events or details that are not in the explanation text.
 2. Copy amounts and percentages exactly as written in the facts (for example "INR 200,000.00", "20.0%"). Do not calculate new numbers.
 3. If review_status is "Unconfirmed", say the explanation is unconfirmed. If it is "Conflicting explanations", say the explanations conflict.
 4. Every line has a "coverage" fact. Include it in the commentary, keeping its amounts exactly.
    Never attribute the whole movement to an explanation that covers only part of it.
-5. Use the outcome word given (favorable or unfavorable). Expense above plan is unfavorable.
+5. Use the outcome word given (favorable or unfavorable). Costs above plan are unfavorable; sales and profit above plan are favorable.
 6. Plain, neutral CFO language. One to two sentences per line. No marketing words.
 7. Each line already has a heading with its country, cost centre (if any) and account: do not repeat them at the start of the commentary.
    If you do name a line, in its commentary or in a summary bullet, use its "name" fact exactly (for example
@@ -38,7 +39,8 @@ Executive summary: 2 to 4 short bullets covering the net result, the largest exp
 For drivers, copy phrases from "largest_explained_drivers"; never pair a name with an amount from another fact.
 When a sentence quotes amounts, it names only one line or account (use separate sentences for separate lines).
 If "offsets" are given, one bullet must mention the largest one, copying its sentence's amounts (net, gross, hidden).
-If "full_year" is given, you may add one bullet copying its full-year effect and assumption."""
+If "full_year" is given, you may add one bullet copying its full-year effect and assumption.
+If "profit_and_loss" is given, the first bullet states the net profit result (and EBITDA if given), copying its phrases."""
 
 SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': ['executive_summary', 'lines'], 'properties': {
     'executive_summary': {'type': 'array', 'minItems': 2, 'maxItems': 4, 'items': {'type': 'string'}},
@@ -49,7 +51,7 @@ SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': ['executi
 
 def _facts(pack):
     t, s, basis = pack['totals'], pack['summary'], pack['basis']
-    return {'period': pack['period'], 'comparison': basis, 'scope': pack['scope'],
+    facts = {'period': pack['period'], 'comparison': basis, 'scope': pack['scope'], 'review_total': t.get('name', 'Expenses'),
             'total_actual': inr(t['actual']), f'total_{basis}': inr(t['baseline']),
             'net_movement': f"{inr(t['variance'])} {'above' if Decimal(t['variance']) > 0 else 'below'} {basis}",
             'net_outcome': t['direction'], 'material_movements': s['material'],
@@ -59,6 +61,24 @@ def _facts(pack):
             'largest_explained_drivers': driver_sentences(pack),
             'full_year': full_year_facts(pack.get('outlook')),
             'explained_lines': [line_facts(i, l, basis) for i, l in material_lines(pack) if l['note']]}
+    if pack.get('kind') == 'pl':
+        facts['profit_and_loss'] = pl_facts(pack)
+    return facts
+
+
+def pl_facts(pack):
+    """Sales, subtotals and margins as ready phrases, so the AI never computes a margin."""
+    out = {}
+    for e in pack.get('pl') or []:
+        if e['kind'] == 'subtotal' or (e['kind'] == 'line' and e['label'] == 'Sales'):
+            v = Decimal(e['variance'])
+            out[e['label']] = (f"{inr(e['actual'])} against {inr(e['baseline'])}: {inr(v)} {'above' if v > 0 else 'below'} plan "
+                               f"({e['direction'].lower()})" if v else f"{inr(e['actual'])}, on plan")
+        elif e['kind'] == 'margin':
+            pts = Decimal(e['pts'])
+            out[MARGIN_NAMES.get(e['label'], e['label'])] = (f"{Decimal(e['actual_pct']):.1f}% against {Decimal(e['baseline_pct']):.1f}% "
+                                                             f"({'+' if pts > 0 else '-' if pts < 0 else ''}{abs(pts):.1f} pts)")
+    return out
 
 
 def driver_sentences(pack, limit=3):
@@ -115,7 +135,8 @@ STATUS_LEADS = {'Confirmed by reviewer': 'Reason confirmed by the reviewer',
 def standard_line(pack, line):
     """Engine-written commentary for one explained line: the reviewer's words plus the pack's figures."""
     variance = Decimal(line['variance'])
-    move = f"Expense is {inr(variance)} {'above' if variance > 0 else 'below'} {pack['basis']} ({line['direction'].lower()})."
+    noun = 'Revenue' if line.get('pl_line') == 'Sales' else 'Expense'
+    move = f"{noun} is {inr(variance)} {'above' if variance > 0 else 'below'} {pack['basis']} ({line['direction'].lower()})."
     lead = STATUS_LEADS[line['note']['status']]
     reason = ' '.join(line['note']['reason'].split()).rstrip('.')
     allowed = allowed_figures(pack)
@@ -128,8 +149,9 @@ def standard_line(pack, line):
 def standard_summary(pack):
     t, s, basis = pack['totals'], pack['summary'], pack['basis']
     word = 'above' if Decimal(t['variance']) > 0 else 'below'
-    bullets = [f"Expenses were {inr(t['variance'])} {word} {basis} ({t['direction'].lower()}): actual {inr(t['actual'])} "
-               f"against {inr(t['baseline'])}.",
+    name = t.get('name', 'Expenses')
+    bullets = [f"{name} {'were' if name == 'Expenses' else 'was'} {inr(t['variance'])} {word} {basis} ({t['direction'].lower()}): "
+               f"actual {inr(t['actual'])} against {inr(t['baseline'])}.",
                f"Confirmed explanations cover {inr(s['explained'])}; {inr(s['unexplained'])} remains unexplained "
                f"across {s['open_items']} open item(s)."]
     offsets = offset_sentences(pack)

@@ -3,12 +3,13 @@ from decimal import Decimal
 import hashlib
 import streamlit as st
 import fmt
-from finance import (CC, aggregate, apply_master, compare, dim_label, line_label, load_cc_master, load_csv,
-                     review_lines, sample_cc_master_csv)
+from finance import (CC, SALES, aggregate, apply_master, bridge, bridge_options, compare, dim_label, line_label,
+                     load_cc_master, load_csv, merge_datasets, review_lines, sample_cc_master_csv, statement)
 from evidence import STATUSES, TIMINGS, note_key, make_note, evidence_commentary
 from pack import (MONTHS, build_pack, lock_pack, pack_json, pack_excel, pack_markdown, export_notes, import_notes,
                   rollup_views)
-from report_html import heatmap_html
+from report_html import heatmap_html, pl_table_html
+from charts import bridge_chart
 from ai_panel import ai_settings, demo_notes_button, interviewer_section, reset_note_widgets, writer_section
 from data_panel import load_inputs, show_reconciliation, source_uploads
 from notes_panel import excel_roundtrip, notes_table, show_bulk_errors
@@ -61,6 +62,8 @@ try:
         if had_notes:
             st.warning('The input changed. Previous business explanations were cleared; enter notes for this data.')
     dataset, checks = load_csv(inputs['text']), []
+    if inputs.get('pl_text'):  # sales and other P&L lines: accounts the name does not place are read as sales
+        dataset = merge_datasets(dataset, load_csv(inputs['pl_text'], default_line=SALES))
     for code, details in inputs['attrs'].items():  # cost centre details found in a separate actuals file
         if code in dataset.attrs:
             dataset.attrs[code].update(details)
@@ -121,9 +124,16 @@ country = st.selectbox('Country', ['All countries'] + sorted({r['country'] for r
 in_view = lambda r: country == 'All countries' or r['country'] == country
 selected = [r for r in rows if in_view(r)]
 result = [r for r in review_lines(rows, baseline, line_thresholds, total_thresholds) if in_view(r)]
-actual = sum(r['actual'] for r in selected)
-plan = sum(r[baseline] for r in selected)
-total = compare(actual, plan, *(total_thresholds or line_thresholds))
+pl = statement(selected, baseline)  # [] for an expense-only review
+subtotal = {e['label']: e for e in pl}
+if pl:  # the headline total of a P&L review is net profit; more is better
+    actual, plan = subtotal['Net profit']['actual'], subtotal['Net profit']['baseline']
+    total = compare(actual, plan, *(total_thresholds or line_thresholds), True)
+else:
+    actual = sum(r['actual'] for r in selected)
+    plan = sum(r[baseline] for r in selected)
+    total = compare(actual, plan, *(total_thresholds or line_thresholds))
+total_name = 'Net profit' if pl else 'Expenses'
 material = [r for r in result if r['material']]
 current_pack = build_pack(rows, baseline, *line_thresholds, st.session_state.business_notes, total_thresholds, fy_start)
 with hero_box:
@@ -136,21 +146,50 @@ in_scope = [l for l in current_pack['lines'] if l['material'] and in_view(l)]
 gap = sum(abs(Decimal(l['variance'])) for l in in_scope)
 explained = sum(Decimal(l['explained']) for l in in_scope)
 c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric('Actual expense · INR', fmt.group(actual))
-c2.metric(f'{baseline.title()} · INR', fmt.group(plan))
-c3.metric('Net variance · INR', fmt.signed(total['variance']),
-          delta=f"{total['pct']:+.1f}% vs {baseline}" if total['pct'] is not None else None, delta_color='inverse',
-          help='Red arrow up = spend above plan (unfavorable); green arrow down = below plan.')
+amount = lambda v: ('−' if v < 0 else '') + fmt.group(v)
+if pl:
+    for col, name in ((c1, 'Sales'), (c2, 'EBITDA'), (c3, 'Net profit')):
+        e, margin = subtotal[name], subtotal.get(f'{name} %')
+        col.metric(f'{name} · INR', amount(e['actual']), delta=f"{fmt.signed(e['impact'])} vs {baseline}" if e['impact'] else None,
+                   delta_color='normal',
+                   help=(f"{margin['actual_pct']:.1f}% margin vs {margin['baseline_pct']:.1f}% in the {baseline}. " if margin else '')
+                        + 'Green arrow up = helps profit; red arrow down = hurts it.')
+else:
+    c1.metric('Actual expense · INR', fmt.group(actual))
+    c2.metric(f'{baseline.title()} · INR', fmt.group(plan))
+    c3.metric('Net variance · INR', fmt.signed(total['variance']),
+              delta=f"{total['pct']:+.1f}% vs {baseline}" if total['pct'] is not None else None, delta_color='inverse',
+              help='Red arrow up = spend above plan (unfavorable); green arrow down = below plan.')
 c4.metric('Lines to explain', len(material))
 c5.metric('Explained (confirmed)', f'{explained / gap * 100:.0f}%' if gap else '–',
           help='Confirmed explanations as a share of the lines that need one.')
+MARGIN_NAMES = {'Gross margin %': 'Gross margin', 'EBITDA %': 'EBITDA margin', 'Net profit %': 'Net margin'}
+margins = ' · '.join(f"{MARGIN_NAMES.get(m['label'], m['label'])} {m['actual_pct']:.1f}% ({m['pts']:+.1f} pts)"
+                     for m in pl if m['kind'] == 'margin')
 st.caption(f"Period: {selected[0]['month']} · {len(selected)} lines analysed by {level_name} · "
-           f"Net outcome: {total['direction']}. Individual favorable and unfavorable movements can offset in the total.")
+           + (f'{margins} · ' if margins else '')
+           + f"{total_name}: {total['direction'].lower()}. Individual favorable and unfavorable movements can offset in the total.")
 outlook = current_pack['outlook']
 if Decimal(outlook['fy_effect']):
     st.caption(f"📅 **Full-year view ({outlook['fy']}, {outlook['months_left']} months left):** confirmed explanations point to "
                f"INR {fmt.signed(outlook['fy_effect'])} vs plan, if recurring items continue at this month's amount and "
                'timing differences reverse. Unexplained variance is not projected. All countries.')
+
+if pl:
+    with st.container(border=True, key='card_pl'):
+        section('📒', 'Profit and loss', f'Sales to net profit, actual vs {baseline}. Profit impact: + helps profit '
+                '(sales above plan, costs below), − hurts it.' + ('' if country == 'All countries' else f' {country} only.'))
+        left, right = st.columns([11, 10])
+        with left:
+            st.html(pl_table_html(pl, baseline))
+        with right:
+            options = bridge_options(selected)
+            measure = st.selectbox('Waterfall for', options, key='bridge_measure',
+                                   help='Sales and Costs walk in their own terms. Gross margin, EBITDA and Net profit '
+                                        'walk in profit terms: every step is its effect on that margin. '
+                                        'The CFO deck uses the same choice.')
+            st.altair_chart(bridge_chart(bridge(selected, baseline, measure), baseline), width='stretch')
+            st.caption('The axis does not start at zero, so the steps are visible. Hover a bar for its amount.')
 
 if grain:
     with st.container(border=True, key='card_1'):
@@ -248,7 +287,7 @@ if material:
 
 section('🧾', 'Draft commentary for review')
 summary = (f"{selected[0]['month']} | {country} | Compared with {baseline}\n"
-           f"Actual expense: INR {actual:,.2f}; {baseline}: INR {plan:,.2f}; "
+           f"Actual {'net profit' if pl else 'expense'}: INR {actual:,.2f}; {baseline}: INR {plan:,.2f}; "
            f"net variance: INR {total['variance']:+,.2f} ({total['direction'].lower()}).\n\n")
 if material:
     for r in material:

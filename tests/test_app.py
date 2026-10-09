@@ -21,25 +21,39 @@ class AppTests(unittest.TestCase):
     def choose(self, app, label, value):
         next(item for item in app.selectbox if item.label == label).select(value).run()
 
-    def test_default_budget_totals(self):
+    def deltas(self, app):
+        return {item.label: item.delta for item in app.metric}
+
+    def test_default_demo_is_a_full_p_and_l(self):
         app = self.new_app()
+        self.assertEqual(self.metrics(app), {
+            'Sales · INR': '30,500,000', 'EBITDA · INR': '4,220,000', 'Net profit · INR': '2,265,000',
+            'Lines to explain': '13', 'Explained (confirmed)': '0%'})
+        self.assertEqual(self.deltas(app)['Net profit · INR'], '−210,000 vs budget')
+        self.assertEqual(len(app.dataframe[0].value), 38)  # 23 expense lines + 15 sales and other P&L lines
+        self.assertIn('Synthetic demo data', app.info[0].value)
+        self.assertTrue(any('Gross margin 54.4% (-0.6 pts)' in c.value for c in app.caption))
+
+    def test_expense_only_upload_keeps_the_expense_review(self):
+        app = self.new_app()
+        app.sidebar.file_uploader[0].upload('expenses.csv', sample_csv().encode(), 'text/csv').run()
         self.assertEqual(self.metrics(app), {
             'Actual expense · INR': '12,380,000', 'Budget · INR': '12,000,000',
             'Net variance · INR': '+380,000', 'Lines to explain': '13', 'Explained (confirmed)': '0%'})
         self.assertEqual(len(app.dataframe[0].value), 23)
-        self.assertIn('Synthetic demo data', app.info[0].value)
+        self.assertFalse(any(s.label == 'Waterfall for' for s in app.selectbox))
 
     def test_forecast_comparison(self):
         app = self.new_app()
         self.choose(app, 'Compare actuals against', 'forecast')
-        self.assertEqual(self.metrics(app)['Forecast · INR'], '12,190,000')
-        self.assertEqual(self.metrics(app)['Net variance · INR'], '+190,000')
+        self.assertEqual(self.deltas(app)['Net profit · INR'], '−105,000 vs forecast')
+        self.assertEqual(self.deltas(app)['Sales · INR'], '+250,000 vs forecast')
 
     def test_country_filter_and_zero_budget(self):
         app = self.new_app()
         self.choose(app, 'Country', 'India')
-        self.assertEqual(self.metrics(app)['Actual expense · INR'], '4,315,000')
-        self.assertEqual(self.metrics(app)['Budget · INR'], '4,000,000')
+        self.assertEqual(self.metrics(app)['Sales · INR'], '12,300,000')
+        self.assertEqual(self.metrics(app)['Net profit · INR'], '1,659,000')
         frame = app.dataframe[0].value
         self.assertEqual(set(frame['Country']), {'India'})
         consulting = frame.loc[frame['Account'] == 'Consulting'].iloc[0]
@@ -62,7 +76,7 @@ class AppTests(unittest.TestCase):
         self.assertIn('Uploaded data is loaded', app.info[0].value)
         self.assertFalse(any('Synthetic demo data is loaded' in x.value for x in app.info))
         app.sidebar.file_uploader[0].clear().run()
-        self.assertEqual(self.metrics(app)['Actual expense · INR'], '12,380,000')
+        self.assertEqual(self.metrics(app)['Sales · INR'], '30,500,000')
         self.assertIn('Synthetic demo data', app.info[0].value)
 
     def test_invalid_uploads_stop_analysis(self):
@@ -88,9 +102,9 @@ class AppTests(unittest.TestCase):
         self.assertIn('Owner', app.dataframe[0].value.columns)
         next(x for x in app.multiselect if x.label == 'Analyse by').unselect('cost_center').run()
         self.assertEqual(self.metrics(app), {
-            'Actual expense · INR': '12,380,000', 'Budget · INR': '12,000,000',
-            'Net variance · INR': '+380,000', 'Lines to explain': '9', 'Explained (confirmed)': '0%'})
-        self.assertEqual(len(app.dataframe[0].value), 14)
+            'Sales · INR': '30,500,000', 'EBITDA · INR': '4,220,000', 'Net profit · INR': '2,265,000',
+            'Lines to explain': '9', 'Explained (confirmed)': '0%'})
+        self.assertEqual(len(app.dataframe[0].value), 29)
         self.assertFalse(any(x.label == 'Line minimum variance (INR)' for x in app.number_input))
 
     def test_rollup_views_show_gross_and_offsets(self):
@@ -98,7 +112,10 @@ class AppTests(unittest.TestCase):
         next(x for x in app.radio if x.label == 'View by').set_value('Cost centre').run()
         frame = app.dataframe[0].value
         sg_ops = frame.loc[frame['Cost centre'] == 'Singapore | SG-OPS Singapore Operations'].iloc[0]
-        self.assertEqual((sg_ops['Net variance INR'], sg_ops['Gross movement INR']), (-130000, 210000))
+        # SG-OPS carries only costs: expenses -130k, cost of goods sold -50k, tax -23k; gross 283k
+        self.assertEqual((sg_ops['Net variance INR'], sg_ops['Gross movement INR']), (-203000, 283000))
+        in_sal = frame.loc[frame['Cost centre'] == 'India | IN-SAL India Sales'].iloc[0]
+        self.assertEqual(in_sal['Net variance INR'], 350000)  # sales and costs together: profit impact
         next(x for x in app.radio if x.label == 'View by').set_value('Function').run()
         self.assertEqual(set(app.dataframe[0].value['Function']), {'Sales', 'Operations', 'Corporate'})
 
@@ -121,7 +138,7 @@ class AppTests(unittest.TestCase):
         first.sidebar.file_uploader[0].upload('changed.csv', changed.encode(), 'text/csv').run()
         second = self.new_app()
         self.assertEqual(self.metrics(first)['Actual expense · INR'], '12,480,000')
-        self.assertEqual(self.metrics(second)['Actual expense · INR'], '12,380,000')
+        self.assertEqual(self.metrics(second)['Sales · INR'], '30,500,000')
 
 
 class DemoNotesTests(unittest.TestCase):

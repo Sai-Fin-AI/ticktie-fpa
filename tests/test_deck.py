@@ -54,10 +54,10 @@ class DeckFigureTests(unittest.TestCase):
         self.pack = lock_pack(demo_pack())
 
     def test_derived_figures_reconcile(self):
-        steps = dict(account_steps(self.pack))
-        self.assertEqual(steps, {'Distribution': D('340000'), 'Consulting': D('130000'), 'Employee costs': D('-50000'),
-                                 'Warehousing': D('-40000')})
-        self.assertEqual(sum(steps.values()), D('380000'))
+        steps = dict(account_steps(self.pack))  # P&L demo: the default bridge is EBITDA, in profit terms
+        self.assertEqual(steps, {'Product sales': D('500000'), 'Cost of goods sold': D('-400000'), 'Distribution': D('-340000'),
+                                 'Consulting': D('-130000'), 'Employee costs': D('50000'), 'Warehousing': D('40000')})
+        self.assertEqual(sum(steps.values()), D('-280000'))
         split = timing_split(self.pack)
         self.assertEqual((split['One-off'], split['Recurring'], split['Timing difference'], split['Unexplained']),
                          (D('255000'), D('90000'), D('150000'), D('515000')))
@@ -83,23 +83,40 @@ class DeckBuildTests(unittest.TestCase):
         result = make_deck(self.pack, FakeClient(good_headlines()))
         self.assertEqual((result['issues'], result['source']), ([], 'AI (Fake model), tick-and-tied'))
         deck, texts = slide_texts(result['pptx'])
-        self.assertEqual(len(deck.slides), 10)
+        self.assertEqual(len(deck.slides), 11)
         self.assertAlmostEqual(Emu(deck.slide_width).inches, 13.333, places=2)
-        self.assertEqual(result['slides'], 10)
-        self.assertIn('Expense variance review\nAugust 2026', texts[0])
+        self.assertEqual(result['slides'], 11)
+        self.assertIn('P&L variance review\nAugust 2026', texts[0])
         self.assertIn(self.pack['content_hash'][:12], texts[0])
-        self.assertIn('Distribution adds INR 340,000', texts[2])
-        charts = [s for s in deck.slides[2].shapes if s.has_chart]
+        self.assertIn('Net profit INR 210,000 below budget; EBITDA INR 280,000 below', texts[2])
+        self.assertIn('GROSS MARGIN', texts[2])
+        self.assertIn('Distribution adds INR 340,000', texts[3])
+        self.assertIn('EBITDA BRIDGE: BUDGET TO ACTUAL', texts[3])
+        charts = [s for s in deck.slides[3].shapes if s.has_chart]
         self.assertEqual(list(charts[0].chart.plots[0].categories),
-                         ['Budget', 'Distribution', 'Consulting', 'Employee costs', 'Warehousing', 'Actual'])
-        self.assertIn('Arjun Mehta', texts[3])
-        self.assertIn('+240k', texts[4])
-        self.assertIn('Singapore | Employee costs', texts[5])
-        self.assertIn('Priya Nair', texts[6])
-        self.assertIn('Recurring INR 90,000', texts[7])
-        self.assertIn('Lines needing explanation (1–12 of 13)', texts[8])
-        self.assertIn('(13–13 of 13)', texts[9])
-        self.assertEqual([k for k, _ in result['outline']][:3], ['Title', 'Executive summary', 'Bridge'])
+                         ['Budget', 'Product sales', 'Cost of goods sold', 'Distribution', 'Consulting', 'Employee costs',
+                          'Warehousing', 'Actual'])
+        self.assertIn('Arjun Mehta', texts[4])
+        self.assertIn('+240k', texts[5])
+        self.assertIn('Singapore | Employee costs', texts[6])
+        self.assertIn('Priya Nair', texts[7])
+        self.assertIn('Recurring INR 90,000', texts[8])
+        self.assertIn('Lines needing explanation (1–12 of 13)', texts[9])
+        self.assertIn('(13–13 of 13)', texts[10])
+        self.assertEqual([k for k, _ in result['outline']][:4], ['Title', 'Executive summary', 'Profit and loss', 'Bridge'])
+
+    def test_bridge_follows_the_choice_on_screen(self):
+        for measure, first, cats in (('Sales', 'Product sales', 3), ('Costs', 'Cost of goods sold', 8),
+                                     ('Gross margin', 'Product sales', 4), ('Net profit', 'Product sales', 9)):
+            with self.subTest(measure=measure):
+                result = make_deck(self.pack, None, bridge=measure)
+                deck, texts = slide_texts(result['pptx'])
+                chart = next(s for s in deck.slides[3].shapes if s.has_chart).chart
+                self.assertEqual(list(chart.plots[0].categories)[1], first)
+                self.assertEqual(len(list(chart.plots[0].categories)), cats)
+                self.assertEqual(result['issues'], [])
+        _, texts = slide_texts(make_deck(self.pack, None, bridge='Costs')['pptx'])
+        self.assertIn('Cost of goods sold adds INR 400,000 to costs', texts[3])
 
     def test_failing_headlines_are_replaced_not_shown(self):
         bad = good_headlines()
@@ -158,8 +175,8 @@ class DeckAppTests(unittest.TestCase):
         self.assertFalse(app.exception)
         deck = app.session_state['ai_deck']
         self.assertTrue(deck['source'].startswith('AI (Demo'), deck['issues'])
-        self.assertEqual(len(Presentation(io.BytesIO(deck['pptx'])).slides), 10)
-        self.assertTrue(any('CFO deck' in x.value and '10 slides' in x.value for x in app.markdown))
+        self.assertEqual(len(Presentation(io.BytesIO(deck['pptx'])).slides), 11)
+        self.assertTrue(any('CFO deck' in x.value and '11 slides' in x.value for x in app.markdown))
         self.assertIn('✔ Tick-and-tie passed', app.session_state['ai_commentary']['html'])
         next(r for r in app.radio if r.label == 'Deck headlines').set_value('Standard, written by the engine').run()
         button('Draft CFO commentary and deck').click().run()

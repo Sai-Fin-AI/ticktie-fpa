@@ -12,7 +12,8 @@ from decimal import Decimal
 from openpyxl import Workbook
 from openpyxl.styles import Font
 
-from finance import CC, CC_ATTRS, analyze, compare, dim_label, line_label, review_lines
+from finance import (CC, CC_ATTRS, OPEX, SUBTOTALS, analyze, bridge, compare, dim_label, has_sales, is_sales, line_label, review_lines,
+                     statement)
 from evidence import accepted_amount, evidence_commentary, make_note, note_key
 
 SCHEMA_VERSION = '1'
@@ -44,12 +45,13 @@ MONTHS = ('January', 'February', 'March', 'April', 'May', 'June', 'July', 'Augus
           'November', 'December')
 
 
-def fy_outlook(lines, period, fy_start):
+def fy_outlook(lines, period, fy_start, profit_terms=False):
     """Full-year effect of confirmed explanations, on a stated run-rate assumption.
 
     Recurring items continue at this month's amount for the rest of the financial year; timing differences
     reverse within the year; one-offs (and confirmed items of unknown timing) happen once. Unexplained
-    variance is shown but never projected. Amounts are signed: positive = above plan (unfavorable).
+    variance is shown but never projected. Expense reviews sign amounts in cost terms (+ = spend above plan,
+    unfavorable); P&L reviews sign them in profit terms (+ = helps profit, favorable).
     """
     year, month = (int(p) for p in period.split('-'))
     months_left = (fy_start - 1 - month) % 12  # months after this one, up to the financial year end
@@ -59,10 +61,10 @@ def fy_outlook(lines, period, fy_start):
     for line in lines:
         explained = Decimal(str(line['explained'] or 0))  # Decimal while building, text in a saved pack
         if line['material'] and explained:
-            sign = 1 if Decimal(str(line['variance'])) > 0 else -1
+            sign = (1 if line['direction'] == 'Favorable' else -1) if profit_terms else (1 if Decimal(str(line['variance'])) > 0 else -1)
             by_timing[line['note']['timing']] += sign * explained
     recurring = by_timing['Recurring']
-    return {'fy': label, 'fy_start': MONTHS[fy_start - 1], 'months_left': months_left,
+    return {'fy': label, 'fy_start': MONTHS[fy_start - 1], 'months_left': months_left, 'terms': 'profit' if profit_terms else 'cost',
             'one_off': by_timing['One-off'], 'unknown_timing': by_timing['Unknown'],
             'timing': by_timing['Timing difference'], 'recurring_month': recurring,
             'recurring_rest': recurring * months_left, 'recurring_fy': recurring * (months_left + 1),
@@ -78,14 +80,18 @@ def build_pack(rows, baseline, amount_threshold, pct_threshold, notes, total_thr
     """
     grain = list(rows[0].get('dims', ()))
     total_thresholds = total_thresholds if grain else None
-    actual = sum(r['actual'] for r in rows)
-    plan = sum(r[baseline] for r in rows)
-    total = compare(actual, plan, *(total_thresholds or (amount_threshold, pct_threshold)))
+    kind = 'pl' if has_sales(rows) else 'expense'
+    sign = lambda r: (1 if is_sales(r) else -1) if kind == 'pl' else 1  # P&L totals are net profit
+    actual = sum(sign(r) * r['actual'] for r in rows)
+    plan = sum(sign(r) * r[baseline] for r in rows)
+    total = compare(actual, plan, *(total_thresholds or (amount_threshold, pct_threshold)), kind == 'pl')
     lines, explained, unexplained, open_items = [], Decimal('0'), Decimal('0'), 0
     for r in review_lines(rows, baseline, (amount_threshold, pct_threshold), total_thresholds):
         note = notes.get(note_key(r, baseline))
         line = {'label': line_label(r), 'country': r['country'], 'dims': {d: r[d] for d in grain},
-                'attrs': {a: r[a] for a in CC_ATTRS if r.get(a)}, 'account': r['account'], 'actual': r['actual'],
+                'attrs': {a: r[a] for a in CC_ATTRS if r.get(a)}, 'account': r['account'],
+                'pl_line': r.get('pl_line', OPEX), 'impact': r['variance'] * (1 if is_sales(r) else -1) if r['variance'] else Decimal(0),
+                'actual': r['actual'],
                 'baseline': r[baseline], 'variance': r['variance'], 'pct': r['pct'],
                 'direction': r['direction'], 'material': r['material'], 'scope': r['scope'],
                 'note': {k: note[k] for k in NOTE_FIELDS} if note else None,
@@ -101,18 +107,31 @@ def build_pack(rows, baseline, amount_threshold, pct_threshold, notes, total_thr
     hidden_floor = (total_thresholds or (amount_threshold, pct_threshold))[0]
     content = _plain({
         'schema_version': SCHEMA_VERSION, 'period': rows[0]['month'], 'currency': rows[0]['currency'],
-        'basis': baseline, 'scope': 'All countries', 'grain': grain,
+        'basis': baseline, 'scope': 'All countries', 'grain': grain, 'kind': kind,
         'thresholds': {'amount': _q(amount_threshold), 'pct': _q(pct_threshold),
                        'total_amount': _q(total_thresholds[0]) if total_thresholds else None,
                        'total_pct': _q(total_thresholds[1]) if total_thresholds else None},
-        'totals': {'actual': actual, 'baseline': plan, 'variance': total['variance'],
-                   'pct': total['pct'], 'direction': total['direction']},
+        'totals': {'name': 'Net profit' if kind == 'pl' else 'Expenses', 'actual': actual, 'baseline': plan,
+                   'variance': total['variance'], 'pct': total['pct'], 'direction': total['direction']},
+        'pl': statement(rows, baseline),
         'summary': {'rows': len(lines), 'material': sum(l['material'] for l in lines),
                     'explained': explained, 'unexplained': unexplained, 'open_items': open_items},
         'lines': lines,
-        'outlook': fy_outlook(lines, rows[0]['month'], fy_start),
+        'outlook': fy_outlook(lines, rows[0]['month'], fy_start, kind == 'pl'),
         'rollups': _rollups(lines, grain, total_thresholds, hidden_floor)})
     return {**content, 'content_hash': _fingerprint(content)}
+
+
+def pack_bridge(pack, measure):
+    """finance.bridge on a pack's lines (amounts are text in a saved pack)."""
+    rows = [{'account': l['account'], 'pl_line': l.get('pl_line', OPEX), 'actual': Decimal(str(l['actual'])),
+             'baseline': Decimal(str(l['baseline']))} for l in pack['lines']]
+    return bridge(rows, 'baseline', measure)
+
+
+def bridge_choices(pack):
+    from finance import BRIDGES
+    return list(BRIDGES) if pack.get('kind') == 'pl' else ['Costs']
 
 
 def rollup_views(grain, lines):
@@ -138,17 +157,21 @@ def _rollups(lines, grain, total_thresholds, hidden_floor):
             groups.setdefault(key(line), []).append(line)
         entries = []
         for parts, members in groups.items():
-            actual, plan = sum(m['actual'] for m in members), sum(m['baseline'] for m in members)
+            # A group holding both sales and costs (a sales cost centre in a P&L review) is summed as its
+            # contribution to profit; a group of one kind keeps its own amounts.
+            mixed = len({is_sales(m) for m in members}) > 1
+            sign = lambda m: (1 if is_sales(m) else -1) if mixed else 1
+            actual, plan = sum(sign(m) * m['actual'] for m in members), sum(sign(m) * m['baseline'] for m in members)
             net = actual - plan
             gross = sum(abs(m['variance']) for m in members)
-            ups, downs = any(m['variance'] > 0 for m in members), any(m['variance'] < 0 for m in members)
+            ups, downs = any(m['impact'] > 0 for m in members), any(m['impact'] < 0 for m in members)
             in_scope = [m for m in members if m['material']]
             flags = []
             if ups and downs and gross - abs(net) >= hidden_floor:
                 flags.append('Offsetting movements')
             if any(m['scope'] == 'Account total' for m in members) and view == 'account':
                 flags.append('Material in total only')
-            result = compare(actual, plan, *(total_thresholds or (hidden_floor, Decimal(0))))
+            result = compare(actual, plan, *(total_thresholds or (hidden_floor, Decimal(0))), mixed or is_sales(members[0]))
             entries.append({'label': ' | '.join(p for p in parts if p), 'actual': actual, 'baseline': plan, 'net': net,
                             'pct': result['pct'], 'direction': result['direction'], 'gross': gross,
                             'hidden': gross - abs(net), 'flags': flags, 'lines': len(members), 'to_explain': len(in_scope),
@@ -220,7 +243,8 @@ def pack_excel(pack):
     t, s = pack['totals'], pack['summary']
     sheet('Summary', ['Item', 'Value'], [
         ('Period', pack['period']), ('Comparison basis', pack['basis'].title()), ('Scope', pack['scope']),
-        ('Currency', pack['currency']), ('Actual', _money(t['actual'])), (pack['basis'].title(), _money(t['baseline'])),
+        ('Currency', pack['currency']), ('Review total', t.get('name', 'Expenses')),
+        ('Actual', _money(t['actual'])), (pack['basis'].title(), _money(t['baseline'])),
         ('Net variance', _money(t['variance'])), ('Net outcome', t['direction']),
         ('Analysed by', ' × '.join(['Country'] + [dim_label(d) for d in pack['grain']] + ['Account'])),
         ('Materiality per line: amount', _money(pack['thresholds']['amount'])),
@@ -235,6 +259,27 @@ def pack_excel(pack):
         if isinstance(cell.value, Decimal):
             cell.number_format = money
     grain, base = pack['grain'], pack['basis'].title()
+    if pack.get('pl'):
+        rows = []
+        for e in pack['pl']:
+            if e['kind'] == 'margin':
+                rows.append((e['label'], _money(e['actual_pct']) / 100, _money(e['baseline_pct']) / 100,
+                             f"{_money(e['pts']):+.1f} pts", None, e['direction']))
+            else:
+                rows.append(('    ' + e['label'] if e['kind'] == 'account' else e['label'], _money(e['actual']),
+                             _money(e['baseline']), _money(e['impact']), _money(e['pct']) / 100 if e['pct'] is not None else 'N/A',
+                             e['direction']))
+        sheet('P&L', ['P&L line', 'Actual', base, 'Profit impact (+ helps profit)', 'Variance %', 'Outcome'], rows)
+        ws = book['P&L']
+        for row in ws.iter_rows(min_row=2):
+            label = str(row[0].value).strip()
+            margin = label.endswith('%')
+            for cell in row[1:3]:
+                cell.number_format = '0.0%' if margin else money
+            row[3].number_format, row[4].number_format = money, '0.0%'
+            if not row[0].value.startswith('    ') and label in {s[0] for s in SUBTOTALS} | {'Sales'}:
+                for cell in row:
+                    cell.font = bold
     has_owner = any(l['attrs'].get('owner') for l in pack['lines'])
     ids = ['Country'] + [dim_label(d) for d in grain] + ['Account'] + (['Owner'] if has_owner else [])
 

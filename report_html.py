@@ -7,6 +7,7 @@ from decimal import Decimal
 from html import escape
 
 import fmt
+from finance import MARGIN_NAMES
 from agents import cost_centre, grouped_lines, material_lines, owner, pct_text
 from pack import open_reason
 
@@ -63,46 +64,87 @@ def _compact(value):
     return fmt.compact(value)
 
 
+def pl_table_html(rows, basis):
+    """The P&L statement as a compact table: bold subtotals, indented accounts, margin rows in percentage points.
+    Profit impact is green when it helps profit and red when it hurts. Colour is always paired with a sign."""
+    if not rows:
+        return ''
+    cell = 'padding:5px 8px;text-align:right;white-space:nowrap'
+    head = (f'<tr style="color:{GREY};font-size:12px"><th style="text-align:left;padding:5px 8px">INR</th>'
+            f'<th style="{cell}">Actual</th><th style="{cell}">{escape(basis.title())}</th>'
+            f'<th style="{cell}">Profit impact</th><th style="{cell}">%</th></tr>')
+    body = []
+    for e in rows:
+        if e['kind'] == 'margin':
+            colour = GREEN if Decimal(e['pts']) > 0 else RED if Decimal(e['pts']) < 0 else GREY
+            pts = Decimal(e['pts'])
+            body.append(f'<tr style="font-size:12px;color:{GREY}"><td style="padding:3px 8px 6px 18px">{escape(MARGIN_NAMES.get(e["label"], e["label"]))}</td>'
+                        f'<td style="{cell}">{Decimal(e["actual_pct"]):.1f}%</td><td style="{cell}">{Decimal(e["baseline_pct"]):.1f}%</td>'
+                        f'<td style="{cell};color:{colour}">{"+" if pts > 0 else "−" if pts < 0 else ""}{abs(pts):.1f} pts</td><td></td></tr>')
+            continue
+        impact = Decimal(e['impact'])
+        colour = GREEN if impact > 0 else RED if impact < 0 else GREY
+        sub = e['kind'] == 'subtotal'
+        style = (f'font-weight:700;background:#f2f4f7;border-top:1px solid #d0d5dd' if sub else
+                 f'color:#475467' if e['kind'] == 'account' else 'font-weight:600')
+        indent = '22px' if e['kind'] == 'account' else '8px'
+        pct = f"{abs(Decimal(e['pct'])):.1f}%" if e['pct'] is not None else 'N/A'
+        amount = lambda v: ('−' if Decimal(v) < 0 else '') + fmt.group(v)
+        body.append(f'<tr style="{style};border-bottom:1px solid #eaecf0"><td style="padding:5px 8px 5px {indent}">{escape(e["label"])}</td>'
+                    f'<td style="{cell}">{amount(e["actual"])}</td><td style="{cell}">{amount(e["baseline"])}</td>'
+                    f'<td style="{cell};color:{colour}">{"▲ " if impact > 0 else "▼ " if impact < 0 else ""}'
+                    f'{fmt.signed(impact) if impact else "0"}</td><td style="{cell};color:{GREY}">{pct}</td></tr>')
+    return (f'<div style="{FONT};overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:13px;'
+            f'font-variant-numeric:tabular-nums;background:#fff">{head}{"".join(body)}</table></div>')
+
+
 def heatmap_html(pack, country=None):
-    """Grid of variance by line (rows) and account (columns). Red = overspend, green = underspend; bold = needs explanation."""
+    """Grid of variance by line (rows) and account (columns). Red = unfavorable, green = favorable; bold = needs
+    explanation. In a P&L review the Net column and row add up profit impact, because sales and costs mix there."""
     lines = [l for l in pack['lines'] if country in (None, l['country'])]
     if not lines:
         return ''
+    profit = pack.get('kind') == 'pl'
     accounts = list(dict.fromkeys(l['account'] for l in lines))
     row_names = list(dict.fromkeys(l['label'].rsplit(' | ', 1)[0] for l in lines))
     cells = {(l['label'].rsplit(' | ', 1)[0], l['account']): l for l in lines}
     peak = max(abs(Decimal(l['variance'])) for l in lines) or Decimal(1)
+    effect = lambda l: Decimal(l['impact']) if profit else Decimal(l['variance'])
 
     def cell(line):
         if line is None:
             return f'<td style="padding:6px 8px;text-align:center;color:#d0d5dd;border:1px solid #f2f4f7">·</td>'
         value = Decimal(line['variance'])
         alpha = float(min(Decimal(1), abs(value) / peak)) * 0.85 + (0.08 if value else 0)
-        rgb = '180,35,24' if value > 0 else '2,122,72'
+        rgb = '180,35,24' if line['direction'] == 'Unfavorable' else '2,122,72'
         strong = 'font-weight:700;outline:2px solid #101828;outline-offset:-2px' if line['material'] else ''
         ink = '#fff' if alpha > 0.55 else '#101828'
         return (f'<td title="{escape(line["label"])}: {escape(_inr(value))}" style="padding:6px 8px;text-align:center;'
                 f'background:rgba({rgb},{alpha:.2f});color:{ink};border:1px solid #fff;{strong}">{_compact(value)}</td>')
 
-    def total(values):
+    def total(values, good_if_up):
         value = sum(values, Decimal(0))
-        colour = RED if value > 0 else GREEN if value < 0 else GREY
+        colour = GREY if not value else GREEN if (value > 0) == good_if_up else RED
         return f'<td style="padding:6px 8px;text-align:center;font-weight:700;color:{colour};background:#f9fafb">{_compact(value)}</td>'
+
+    def account_total(account):
+        members = [l for l in lines if l['account'] == account]
+        return total((Decimal(l['variance']) for l in members), members[0].get('pl_line') == 'Sales')
 
     head = ''.join(f'<th style="padding:6px 8px;font-size:12px;color:{GREY};font-weight:600">{escape(a)}</th>' for a in accounts)
     body = ''.join(
         f'<tr><th style="padding:6px 8px;text-align:left;font-size:12px;font-weight:600;white-space:nowrap">{escape(r)}</th>'
         + ''.join(cell(cells.get((r, a))) for a in accounts)
-        + total(Decimal(l['variance']) for (name, _), l in cells.items() if name == r) + '</tr>' for r in row_names)
+        + total((effect(l) for (name, _), l in cells.items() if name == r), profit) + '</tr>' for r in row_names)
     foot = ('<tr><th style="padding:6px 8px;text-align:left;font-size:12px">Net</th>'
-            + ''.join(total(Decimal(l['variance']) for l in lines if l['account'] == a) for a in accounts)
-            + total(Decimal(l['variance']) for l in lines) + '</tr>')
+            + ''.join(account_total(a) for a in accounts)
+            + total((effect(l) for l in lines), profit) + '</tr>')
+    net_note = ' · Net column and row = profit impact (+ helps profit)' if profit else ''
     return (f'<div style="{FONT};overflow-x:auto"><table style="border-collapse:collapse;font-size:13px;background:#fff;border-radius:10px">'
             f'<tr><th></th>{head}<th style="padding:6px 8px;font-size:12px;color:{GREY}">Net</th></tr>{body}{foot}</table>'
             f'<div style="font-size:12px;color:{GREY};margin-top:6px">Variance vs {escape(pack["basis"])} in INR. '
-            '<span style="color:#b42318">■</span> overspend (unfavorable) · <span style="color:#027a48">■</span> underspend (favorable) · '
-            'darker = larger · outlined bold = needs explanation · · = no data</div></div>')
-
+            '<span style="color:#b42318">■</span> unfavorable · <span style="color:#027a48">■</span> favorable · '
+            f'darker = larger · outlined bold = needs explanation · · = no data{net_note}</div></div>')
 
 def _group_header(group):
     label, colour = _direction(group['direction'])
@@ -178,13 +220,24 @@ def commentary_html(pack, reply, issues, model, replaced=0):
     if issues:
         out.append(f'<div style="padding:12px 14px;border-radius:10px;background:{TINT[RED]};color:{RED};font-weight:600;margin-bottom:14px">'
                    f'✖ FAILED NUMBER CHECK. Do not use. {escape("; ".join(issues))}</div>')
+    profit = pack.get('kind') == 'pl' and pack.get('pl')
     out.append(f'<div style="font-size:24px;font-weight:800">CFO commentary</div>'
-               f'<div style="color:{GREY};margin:2px 0 16px">{escape(pack["period"])} · Expenses vs {escape(basis)} · '
-               f'{escape(pack["scope"])} · {escape(pack["currency"])}</div>')
-    out.append('<div style="display:flex;flex-wrap:wrap;gap:10px">' + ''.join([
-        _tile('Actual', _inr(t['actual'], 0)),
-        _tile(basis.title(), _inr(t['baseline'], 0)),
-        _tile('Net variance', _inr(t['variance'], 0), f"{net_label}" + (f" · {pct_text(t)}" if t['pct'] is not None else ''), net_colour),
+               f'<div style="color:{GREY};margin:2px 0 16px">{escape(pack["period"])} · {"P&amp;L" if profit else "Expenses"} vs '
+               f'{escape(basis)} · {escape(pack["scope"])} · {escape(pack["currency"])}</div>')
+    if profit:
+        rows = {e['label']: e for e in pack['pl']}
+
+        def pl_tile(name):
+            e, margin = rows[name], rows.get(f'{name} %')
+            label, colour = _direction(e['direction'])
+            sub = f"{label} · {fmt.signed(e['impact'])}" + (f" · {Decimal(margin['actual_pct']):.1f}% margin" if margin else '')
+            return _tile(name, ('−' if Decimal(e['actual']) < 0 else '') + _inr(e['actual'], 0), sub, colour)
+        headline_tiles = [pl_tile(n) for n in ('Sales', 'EBITDA', 'Net profit') if n in rows]
+    else:
+        headline_tiles = [_tile('Actual', _inr(t['actual'], 0)), _tile(basis.title(), _inr(t['baseline'], 0)),
+                          _tile('Net variance', _inr(t['variance'], 0),
+                                f"{net_label}" + (f" · {pct_text(t)}" if t['pct'] is not None else ''), net_colour)]
+    out.append('<div style="display:flex;flex-wrap:wrap;gap:10px">' + ''.join(headline_tiles + [
         _tile('Explained', f'{explained_share}%', f"{_inr(s['explained'], 0)} of {_inr(material_abs, 0)} material"),
         _tile('Open items', str(s['open_items']), f"{_inr(s['unexplained'], 0)} unexplained", AMBER if s['open_items'] else GREEN),
     ]) + '</div>')
@@ -192,6 +245,9 @@ def commentary_html(pack, reply, issues, model, replaced=0):
     out.append(f'<div style="background:{TINT[BLUE]};border:1px solid {BLUE}33;border-radius:10px;padding:12px 16px">'
                '<ul style="margin:0;padding-left:20px;line-height:1.7;font-size:14px">'
                + ''.join(f'<li>{escape(b)}</li>' for b in reply['executive_summary']) + '</ul></div>')
+    if profit:
+        out.append(_section('Profit and loss'))
+        out.append(pl_table_html(pack['pl'], basis))
     if pack.get('grain'):
         out.append(_section('Where the variance sits'))
         out.append(heatmap_html(pack))

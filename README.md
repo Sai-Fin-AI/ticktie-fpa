@@ -6,7 +6,7 @@
 
 **Month-end variance analysis that never invents a cause.** Upload actuals, budget and forecast. The tool validates the data, calculates variances in exact decimal arithmetic and flags material movements. It then asks the reviewer to explain each one. Figures come only from the engine; explanations come only from people and are labelled as such.
 
-Version 0.5: cost centres, owners and any extra dimension, plus an AI interviewer and AI CFO commentary, with every AI figure tick-and-tied to a locked review pack. Runs free, on a local model or free-tier services. It also builds a CFO PowerPoint deck in parallel with the commentary (see the [roadmap](docs/ROADMAP.md)).
+Version 0.7: a full P&L from sales to net profit (or an expense-only review), cost centres, owners and any extra dimension, plus an AI interviewer and AI CFO commentary, with every AI figure tick-and-tied to a locked review pack. Runs free, on a local model or free-tier services. It also builds a CFO PowerPoint deck in parallel with the commentary (see the [roadmap](docs/ROADMAP.md)).
 
 <!-- Add a screenshot: save it as docs/screenshot.png and uncomment the line below. -->
 <!-- ![App screenshot](docs/screenshot.png) -->
@@ -19,6 +19,8 @@ During monthly reporting, FP&A teams reconcile actuals against budget or the lat
 
 - **Validates before it calculates.** Missing values, duplicate keys, wrong currency, negative or malformed amounts and mixed months stop the analysis. Nothing is assumed.
 - **Variance vs budget or forecast**, ranked by size, filterable by country.
+- **Full P&L, sales to net profit.** Add an optional *Sales and other P&L lines* file next to the expense file (sales, cost of sales, depreciation, interest, tax). Each account sits on a P&L line, read from a `pl_line` column or from the account name ("Product sales" → Sales, "Cost of goods sold" → Cost of sales). The statement shows Gross margin, EBITDA, EBIT, Profit before tax and Net profit, with gross, EBITDA and net margins. **Sign logic flips for sales**: sales above plan is favorable, costs above plan unfavorable, and every line shows its *profit impact* (+ helps profit). Without a sales file it stays an expense review, exactly as before.
+- **Waterfall for any measure.** A dropdown walks budget to actual for EBITDA, Net profit, Gross margin, Sales or Costs, account by account; the CFO deck uses the same choice.
 - **Cost centres and any extra dimension.** Files can carry a `cost_center` column, cost centre details (name, function, owner) and extra columns such as project or region. **Analyse by** chooses the level; removing a level adds its rows up. The demo's 23 cost centre lines reconcile exactly to the 15-row account file.
 - **Cost centre master (optional).** Unknown cost centres and contradicting details stop the file. Cost centres with no data are listed as a completeness check.
 - **Configurable materiality.** The amount **and** percentage thresholds must both be met; zero baselines use the amount only. Cost centre lines and account totals have separate thresholds.
@@ -82,7 +84,8 @@ flowchart LR
 | `app.py`, `ai_panel.py` | Streamlit interface |
 | `notes_panel.py` | Bulk explanation entry: editable table and Excel template round-trip |
 | `fmt.py` | Number style (international or Indian lakh/crore) for screen, commentary and deck |
-| `tests/` | 92 tests: engine, data loading and column mapping, cost centres and roll-ups, evidence, review pack, agents, checker, provider connection and UI. No AI or network needed. |
+| `charts.py` | On-screen waterfall (Altair) |
+| `tests/` | 106 tests: engine, data loading and column mapping, cost centres and roll-ups, evidence, review pack, agents, checker, provider connection and UI. No AI or network needed. |
 
 ## Run it locally
 

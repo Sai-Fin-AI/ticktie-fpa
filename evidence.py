@@ -47,7 +47,7 @@ def accepted_amount(note):
 def evidence_commentary(row, baseline, note=None):
     text = commentary(row, baseline)
     caution = (' Favorable spend does not by itself establish lasting savings; review timing and activity.'
-               if row['variance'] < 0 else '')
+               if row['variance'] < 0 and row.get('pl_line') != 'Sales' else '')
     if note is None or tuple(note['key']) != note_key(row, baseline):
         return text + caution
     # Keep every supplied claim distinct from the engine's verified figures.

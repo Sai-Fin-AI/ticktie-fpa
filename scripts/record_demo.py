@@ -12,7 +12,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from finance import aggregate, analyze, apply_master, load_cc_master, load_csv, sample_cc_master_csv, sample_csv  # noqa: E402
+from finance import (SALES, aggregate, analyze, apply_master, load_cc_master, load_csv, merge_datasets,  # noqa: E402
+                     sample_cc_master_csv, sample_csv, sample_pl_csv)
 from evidence import make_note  # noqa: E402
 from pack import build_pack, export_notes, lock_pack  # noqa: E402
 from llm import Client  # noqa: E402
@@ -43,7 +44,9 @@ DEMO_NOTES = [
 
 
 def demo_rows():
-    dataset, _ = apply_master(load_csv(sample_csv()), load_cc_master(sample_cc_master_csv()))
+    """The app's demo: the expense sample plus the sales and P&L sample, with the cost centre master."""
+    combined = merge_datasets(load_csv(sample_csv()), load_csv(sample_pl_csv(), default_line=SALES))
+    dataset, _ = apply_master(combined, load_cc_master(sample_cc_master_csv()))
     return aggregate(dataset, dataset.dims)
 
 

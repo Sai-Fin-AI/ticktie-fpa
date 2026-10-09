@@ -159,7 +159,7 @@ class PackAppTests(unittest.TestCase):
         app.sidebar.file_uploader[0].upload('account.csv', sample_csv('account').encode(), 'text/csv').run()
         self.widget(app.selectbox, 'Country').select('India').run()
         self.widget(app.selectbox, 'Compare actuals against').select('forecast').run()
-        app.sidebar.file_uploader[2].upload('explanations.json', export_notes({note_key(row, 'forecast'): note}).encode(),
+        app.sidebar.file_uploader[3].upload('explanations.json', export_notes({note_key(row, 'forecast'): note}).encode(),
                                     'application/json').run()
         self.assertFalse(app.exception)
         self.assertTrue(any('Restored 1 explanation' in x.value for x in app.success))

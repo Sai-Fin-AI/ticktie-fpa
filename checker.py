@@ -6,7 +6,8 @@ UNITS = {'lakh': Decimal('1e5'), 'lakhs': Decimal('1e5'), 'lac': Decimal('1e5'),
          'crores': Decimal('1e7'), 'cr': Decimal('1e7'), 'million': Decimal('1e6'), 'mn': Decimal('1e6'),
          'k': Decimal('1e3'), 'thousand': Decimal('1e3')}
 # Digits inside codes such as CC-1001 or FY27 are not figures, hence the look-behind.
-NUMBER = re.compile(r'(?<![\w.\-/])(\d[\d,]*(?:\.\d+)?)\s*(%|percent\b|lakhs?\b|lac\b|crores?\b|cr\b|million\b|mn\b|k\b|thousand\b)?', re.I)
+NUMBER = re.compile(r'(?<![\w.\-/])(\d[\d,]*(?:\.\d+)?)\s*(%|percent\b|pts?\b|pp\b|points?\b|percentage points?\b|lakhs?\b|lac\b|crores?\b|cr\b|million\b|mn\b|k\b|thousand\b)?', re.I)
+POINTS = ('pt', 'pts', 'pp', 'point', 'points', 'percentage point', 'percentage points')
 
 
 def _dec(value):
@@ -15,7 +16,7 @@ def _dec(value):
 
 def allowed_figures(pack):
     """Amounts and percentages the AI may quote, plus numbers the reviewer typed into notes."""
-    amounts, pcts = set(), set()
+    amounts, pcts, points = set(), set(), set()
     t, s = pack['totals'], pack['summary']
     for value in (t['actual'], t['baseline'], t['variance'], s['explained'], s['unexplained'],
                   pack['thresholds']['amount']):
@@ -29,6 +30,14 @@ def allowed_figures(pack):
     if gross:
         pcts.add(_dec(s['explained']) / gross * 100)  # share of material movement explained
     counts = {s['rows'], s['material'], s['open_items'], len({l['country'] for l in pack['lines']})}
+    for e in pack.get('pl') or []:  # P&L lines, subtotals and margins
+        if e['kind'] == 'margin':
+            pcts.update(abs(_dec(e[k])) for k in ('actual_pct', 'baseline_pct'))
+            points.add(abs(_dec(e['pts'])))
+        else:
+            amounts.update(abs(_dec(e[k])) for k in ('actual', 'baseline', 'variance'))
+            if e['pct'] is not None:
+                pcts.add(abs(_dec(e['pct'])))
     outlook = pack.get('outlook')
     if outlook:
         amounts.update(abs(_dec(outlook[k])) for k in ('one_off', 'unknown_timing', 'timing', 'recurring_month',
@@ -53,7 +62,7 @@ def allowed_figures(pack):
                     amounts.add(_dec(match.group(1)))
     year, month = pack['period'].split('-')
     plain = {Decimal(n) for n in counts} | {Decimal(year), Decimal(month)} | {Decimal(n) for n in range(11)}
-    return {'amounts': amounts, 'pcts': pcts, 'plain': plain}
+    return {'amounts': amounts, 'pcts': pcts, 'points': points, 'plain': plain}
 
 
 def _matches(value, decimals, targets, scale=Decimal(1)):
@@ -72,7 +81,9 @@ def unsupported_figures(text, allowed):
             problems.append(match.group(0).strip())
             continue
         decimals = len(raw.split('.')[1]) if '.' in raw else 0
-        if unit in ('%', 'percent'):
+        if unit in POINTS:
+            ok = any(abs(value - p) <= Decimal(10) ** -decimals / 2 for p in allowed.get('points', ()))
+        elif unit in ('%', 'percent'):
             ok = any(abs(value - p) <= Decimal(10) ** -decimals / 2 for p in allowed['pcts'])
         elif unit:
             ok = _matches(value, decimals, allowed['amounts'], UNITS[unit])
@@ -108,7 +119,7 @@ def check_line_text(text, line):
 def _mentions_amount(text, amount):
     for match in NUMBER.finditer(text):
         unit = (match.group(2) or '').lower()
-        if unit in ('%', 'percent'):
+        if unit in ('%', 'percent') or unit in POINTS:
             continue
         raw = match.group(1)
         decimals = len(raw.split('.')[1]) if '.' in raw else 0
@@ -132,6 +143,12 @@ def figure_records(pack, extra=()):
         for e in entries:
             records.append((e['label'], {abs(_dec(e[k])) for k in ('actual', 'baseline', 'net', 'gross', 'hidden', 'explained', 'unexplained')},
                             {abs(_dec(e['pct']))} if e['pct'] is not None else set()))
+    for e in pack.get('pl') or []:
+        if e['kind'] == 'margin':
+            records.append((e['label'], set(), {abs(_dec(e['actual_pct'])), abs(_dec(e['baseline_pct']))}))
+        else:
+            records.append((e['label'], {abs(_dec(e[k])) for k in ('actual', 'baseline', 'variance')},
+                            {abs(_dec(e['pct']))} if e['pct'] is not None else set()))
     return records + [(label, {abs(_dec(a)) for a in amounts}, set()) for label, amounts in extra]
 
 
@@ -139,6 +156,9 @@ def entity_names(pack):
     """{name: kind}. Country and account ('structure') and cost centre or other levels ('dim') identify a
     line together; owners and timing types stand on their own."""
     names = {t: 'timing' for t in ('One-off', 'Recurring', 'Timing difference')}
+    for e in pack.get('pl') or []:  # P&L lines and subtotals (Sales, EBITDA...) name pack-wide figures
+        if e['kind'] in ('line', 'subtotal'):
+            names.setdefault(e['label'], 'statement')
     for line in pack['lines']:
         for name in (line['country'], line['account']):
             names.setdefault(name, 'structure')
@@ -232,6 +252,8 @@ def misattributed_figures(text, pack, extra=()):
         names = (before[-1] if before else groups[0])[2]
         raw, unit = match.group(1), (match.group(2) or '').lower()
         value, decimals = _dec(raw), (len(raw.split('.')[1]) if '.' in raw else 0)
+        if unit in POINTS:  # margin changes are P&L-wide figures, checked by unsupported_figures
+            continue
         if unit in ('%', 'percent'):
             near = lambda targets: any(abs(value - p) <= Decimal(10) ** -decimals / 2 for p in targets)
             if not near(global_pcts) and not any(near(r[2]) for r in records_for(names)):
