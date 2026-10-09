@@ -22,6 +22,10 @@ div[data-testid="stExpander"] details {background: #fff; border-radius: 10px; bo
 .stButton > button, .stDownloadButton > button, [data-testid="stFormSubmitButton"] > button {
   border-radius: 999px; font-weight: 600; border: 1px solid #c7d7f0;}
 .stButton > button:hover, .stDownloadButton > button:hover {border-color: #175cd3; color: #175cd3;}
+/* Primary buttons are filled blue: keep their text white in every state (hover, focus, after a click). */
+button[data-testid="stBaseButton-primary"], button[data-testid="stBaseButton-primary"]:hover,
+button[data-testid="stBaseButton-primary"]:focus, button[data-testid="stBaseButton-primary"]:active,
+button[data-testid="stBaseButton-primary"] p {color: #fff !important; border-color: transparent;}
 [data-testid="stSidebar"] {background: linear-gradient(180deg, #eaf0f8 0%, #f5f7fb 100%); border-right: 1px solid #dbe3ef;}
 [data-testid="stSidebar"] h2 {font-size: 1rem; text-transform: uppercase; letter-spacing: .06em; color: #175cd3;}
 [data-testid="stAlert"] {border-radius: 10px;}

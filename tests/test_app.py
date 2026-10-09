@@ -124,5 +124,19 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.metrics(second)['Actual expense · INR'], '12,380,000')
 
 
+class DemoNotesTests(unittest.TestCase):
+    def test_loaded_notes_fill_the_form_and_the_kpis(self):
+        app = AppTest.from_file(str(APP), default_timeout=60).run()
+        self.assertEqual(app.text_area[0].value, '')
+        next(b for b in app.button if b.label == 'Load demo explanations').click().run()
+        self.assertFalse(app.exception)
+        self.assertIn('Urgent air freight', app.text_area[0].value)
+        self.assertEqual(app.text_input[1].value, '180000')
+        self.assertEqual(next(s for s in app.selectbox if s.label == 'Review status').value, 'Confirmed by reviewer')
+        explained = next(m for m in app.metric if m.label == 'Explained (confirmed)')
+        self.assertEqual(explained.value, '49%')
+        self.assertTrue(any('Loaded 6 demo explanations' in s.value for s in app.success))
+
+
 if __name__ == '__main__':
     unittest.main()

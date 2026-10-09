@@ -62,10 +62,14 @@ def demo_notes_button(rows):
         if restored:
             st.session_state.business_notes.update(restored)
             reset_note_widgets()
-            st.success(f'Loaded {len(restored)} demo explanations for the budget comparison.')
+            # Rerun so the KPIs and heatmap above the button include the new notes.
+            st.session_state.demo_flash = f'Loaded {len(restored)} demo explanations for the budget comparison.'
+            st.rerun()
         else:
             st.info('Demo explanations only match the sample data analysed by cost centre. '
                     'Clear any uploaded file and keep "Cost centre" under Analyse by.')
+    if 'demo_flash' in st.session_state:
+        st.success(st.session_state.pop('demo_flash'))
 
 
 def interviewer_section(pack, client):

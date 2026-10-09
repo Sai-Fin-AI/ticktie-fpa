@@ -190,14 +190,21 @@ if material:
     who = f" Owner: {target['owner']}." if target.get('owner') else ''
     st.caption(f"Variance to explain: INR {abs(target['variance']):,.2f} ({target['direction'].lower()}).{who} "
                'Enter a positive amount, no larger than this variance.')
+    # Seed the widgets from the saved note through session state: a keyed widget keeps its old browser value
+    # and ignores a changed `value=`, so loaded or restored notes would otherwise show an empty form.
+    defaults = {'reason': saved.get('reason', ''), 'reference': saved.get('reference', ''),
+                'amount': str(saved.get('amount', '0')), 'status': saved.get('status', STATUSES[0]),
+                'timing': saved.get('timing', TIMINGS[0]), 'action': saved.get('action', '')}
+    for field, value in defaults.items():
+        st.session_state.setdefault(f'{widget_prefix}_{field}', value)
     with st.form(widget_prefix + '_form', enter_to_submit=False):
-        reason = st.text_area('Business explanation', value=saved.get('reason', ''), max_chars=2000, key=widget_prefix + '_reason')
-        reference = st.text_input('Supporting reference', value=saved.get('reference', ''), max_chars=300,
+        reason = st.text_area('Business explanation', max_chars=2000, key=widget_prefix + '_reason')
+        reference = st.text_input('Supporting reference', max_chars=300,
                                   help='For example: Fictional freight note, August 2026. References are labels; no documents are fetched.', key=widget_prefix + '_reference')
-        covered = st.text_input('Amount explained (INR)', value=str(saved.get('amount', '0')), key=widget_prefix + '_amount')
-        status = st.selectbox('Review status', STATUSES, index=STATUSES.index(saved.get('status', STATUSES[0])), key=widget_prefix + '_status')
-        timing = st.selectbox('Timing', TIMINGS, index=TIMINGS.index(saved.get('timing', TIMINGS[0])), key=widget_prefix + '_timing')
-        action = st.text_area('Proposed next action (optional)', value=saved.get('action', ''), max_chars=1000, key=widget_prefix + '_action')
+        covered = st.text_input('Amount explained (INR)', key=widget_prefix + '_amount')
+        status = st.selectbox('Review status', STATUSES, key=widget_prefix + '_status')
+        timing = st.selectbox('Timing', TIMINGS, key=widget_prefix + '_timing')
+        action = st.text_area('Proposed next action (optional)', max_chars=1000, key=widget_prefix + '_action')
         submitted = st.form_submit_button('Save explanation')
         removed = st.form_submit_button('Remove saved explanation')
     if removed:
