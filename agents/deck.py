@@ -596,6 +596,41 @@ def _summary_slide(deck, pack, headline, bullets, footer):
         [(f"{s['open_items']} open item(s) to close before the review", {'color': SLATE, 'size': 11})]], size=13, after=8)
 
 
+def products_headline(pack):
+    """Engine-written: the product with the largest sales gain and the one with the largest loss."""
+    p = pack['products']
+    rows = sorted(p['rows'], key=lambda e: _d(e['sales_variance']))
+    low, high = rows[0], rows[-1]
+    parts = []
+    if _d(high['sales_variance']) > 0:
+        parts.append(f"{high['label']} adds INR {fmt.group(_d(high['sales_variance']))} of sales")
+    if _d(low['sales_variance']) < 0:
+        parts.append(f"{low['label']} loses INR {fmt.group(_d(low['sales_variance']))}")
+    return ('; '.join(parts) or 'Sales on plan for every ' + p['level']) + '. Mix moves inside the totals.'
+
+
+def _products_slide(deck, pack, footer):
+    """Sales and gross margin per brand (or SKU, category): where mix moves inside the totals."""
+    p = pack['products']
+    name = {'sku': 'SKU', 'brand': 'Brand', 'category': 'Category'}.get(p['level'], p['level'].title())
+    slide = _slide(deck, f'Sales and gross margin by {name.lower()}', products_headline(pack), footer)
+    items = p['rows'][:10]
+    pct = lambda v: f'{abs(_d(v)):.1f}%' if v is not None else 'N/A'
+    rows = [[e['label'], fmt.balance(_d(e['sales_actual'])), _signed(e['sales_variance']), pct(e['sales_pct']),
+             fmt.balance(_d(e['gm_actual'])), f"{_d(e['gm_pct_actual']):.1f}%" if e['gm_pct_actual'] is not None else 'N/A',
+             _pts(e['gm_pts']) if e['gm_pts'] is not None else 'N/A'] for e in items]
+    basis = pack['basis'].upper()
+    tone = lambda v: GREEN if _d(v) > 0 else RED if _d(v) < 0 else SLATE
+    _table(slide, 0.6, 1.95, 12.13, [name.upper(), 'SALES INR', f'VS {basis}', '%', 'GROSS MARGIN INR', 'GM %', f'GM % VS {basis}'],
+           rows, [2.8, 1.8, 1.6, 1.0, 2.0, 1.2, 1.73], row_h=0.5, size=12,
+           colours=lambda r, c: (tone(items[r]['sales_variance']) if c in (2, 3) else
+                                 tone(items[r]['gm_pts']) if c == 6 and items[r]['gm_pts'] is not None else None),
+           bolds=lambda r, c: c in (0, 2))
+    _text(slide, 0.6, 1.95 + 0.5 * (len(rows) + 1) + 0.15, 12.13, 0.5,
+          f'Gross margin = sales minus cost of sales for that {name.lower()}. Sales: green = above plan. GM % change in '
+          'percentage points. Lines without a product (corporate costs, tax) are outside this table. INR.', size=10, color=MUTED)
+
+
 def _pl_slide(deck, pack, footer):
     """Sales to net profit, with subtotals in bold and margins beside the table."""
     rows = pack['pl']
@@ -736,12 +771,18 @@ def _heatmap_slide(deck, pack, headline, footer):
         list(dict.fromkeys(l['account'] for l in pack['lines']))
     names = list(dict.fromkeys(l['label'].rsplit(' | ', 1)[0] for l in pack['lines']))
     cells = {(l['label'].rsplit(' | ', 1)[0], l['account']): l for l in pack['lines']}
-    shown = names[:11]
+    shown = names[:10]  # ten rows leave room for the legend above the footer
     peak = max((abs(_d(l['variance'])) for l in pack['lines']), default=Decimal(1)) or Decimal(1)
     effect = lambda l: _d(l.get('impact')) if _profit(pack) else _d(l['variance'])  # Net mixes sales and costs in a P&L
     nets = {n: sum((effect(cells[(n, a)]) for a in accounts if (n, a) in cells), Decimal(0)) for n in shown}
-    rows = [[n] + [_compact(cells[(n, a)]['variance']) if (n, a) in cells else '·' for a in accounts] + [_compact(nets[n])]
-            for n in shown]
+    first_line = {n: next(l for l in pack['lines'] if l['label'].rsplit(' | ', 1)[0] == n) for n in shown}
+
+    def row_name(n):  # a centre plus a brand would wrap onto two lines: use the codes ("India | PC-IN | Aurora")
+        line = first_line[n]
+        return ' | '.join([line['country'], *map(str, line['dims'].values())]) if len(line['dims']) > 1 else n
+
+    rows = [[row_name(n)] + [_compact(cells[(n, a)]['variance']) if (n, a) in cells else '·' for a in accounts]
+            + [_compact(nets[n])] for n in shown]
 
     def fill(r, c):
         if c == 0 or c > len(accounts):
@@ -930,6 +971,8 @@ def build_deck(pack, headlines, summary, source):
     if _profit(pack) and pack.get('pl'):
         _pl_slide(deck, pack, footer)
     _bridge_slide(deck, pack, headlines['bridge'], footer)
+    if _profit(pack) and pack.get('products'):
+        _products_slide(deck, pack, footer)
     _top_slide(deck, pack, headlines['top'], footer)
     _heatmap_slide(deck, pack, headlines['heatmap'], footer)
     if pack['grain']:
@@ -955,7 +998,10 @@ def make_deck(pack, client, style=None, bridge=None):
     outline = [('Title', f"{title}: {pack['period']}"), ('Executive summary', headlines['summary'])]
     if _profit(pack) and pack.get('pl'):
         outline.append(('Profit and loss', 'Sales to net profit, with subtotals and margins'))
-    outline += [('Bridge', headlines['bridge']), ('Largest movements', headlines['top']), ('Heatmap', headlines['heatmap'])]
+    outline.append(('Bridge', headlines['bridge']))
+    if _profit(pack) and pack.get('products'):
+        outline.append(('Products', products_headline(pack)))
+    outline += [('Largest movements', headlines['top']), ('Heatmap', headlines['heatmap'])]
     if pack['grain']:
         outline.append(('What net figures hide', headlines['offsets']))
     outline += [('Open items by owner', headlines['owners']), ('Outlook', headlines['outlook']), ('Appendix', 'Lines needing explanation')]

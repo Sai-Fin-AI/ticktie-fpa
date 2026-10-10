@@ -34,9 +34,11 @@ def source_uploads():
                            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         st.download_button('Sample forecast', sample_forecast_csv(), 'sample_forecast.csv', 'text/csv')
     uploads['pl'] = st.file_uploader(PL_LABEL, type=TYPES, key='upload_pl',
-                                     help='Optional. Sales, cost of sales, depreciation, interest and tax, in the same '
-                                          'layout as a combined file (actual, budget and forecast columns). With it, the '
-                                          'review covers the full P&L from sales to net profit.')
+                                     help='Optional. Sales, cost of sales, depreciation, interest and tax, with actual, '
+                                          'budget and forecast columns. With it, the review covers the full P&L from sales '
+                                          'to net profit. Its levels may differ from the expense file: sales usually come by '
+                                          'profit centre and SKU (or brand, or category); leave the product blank on lines '
+                                          'that have none, such as tax.')
     st.download_button('Sample sales and P&L lines', sample_pl_csv(), 'sample_sales_and_pl.csv', 'text/csv')
     return mode, {k: v for k, v in uploads.items() if v is not None}
 

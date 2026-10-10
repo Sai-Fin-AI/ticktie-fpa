@@ -3,11 +3,14 @@ from decimal import Decimal
 import hashlib
 import streamlit as st
 import fmt
-from finance import (CC, NEGATIVE_NOTE, SALES, UnmappedGL, accounts_in, aggregate, apply_gl_map, apply_master, bridge, bridge_options, compare,
-                     dim_label, line_label, load_cc_master, load_csv, load_gl_map, looks_like_gl_codes, merge_datasets,
-                     review_lines, sample_cc_master_csv, sample_gl_map_csv, statement)
+from finance import (CC, NEGATIVE_NOTE, PRODUCT_LEVELS, SALES, UnmappedGL, UnmappedSKU, accounts_in, aggregate, apply_gl_map,
+                     apply_master, apply_products, bridge, bridge_options, check_products, compare, dim_label, line_label,
+                     load_cc_master, load_csv, load_gl_map, load_product_master, looks_like_gl_codes, merge_datasets,
+                     product_levels, product_margins, review_lines, sample_cc_master_csv, sample_gl_map_csv,
+                     sample_product_master_csv, statement)
 from ingest import table_csv
-from gl_panel import XLSX, gl_breakdown, gl_codes_view, mapping_workbook
+from gl_panel import (XLSX, gl_breakdown, gl_codes_view, mapping_workbook, margins_table, product_breakdown,
+                      product_workbook)
 from evidence import STATUSES, TIMINGS, note_key, make_note, evidence_commentary
 from pack import (MONTHS, build_pack, lock_pack, pack_json, pack_excel, pack_markdown, export_notes, import_notes,
                   rollup_views)
@@ -41,14 +44,21 @@ with st.sidebar:
     st.caption('Both thresholds must be met. With a zero baseline, only the INR threshold applies.')
     st.header('Data')
     mode, uploads = source_uploads()
-    master_upload = st.file_uploader('Cost centre master (optional CSV)', type=['csv'],
-                                     help='Columns: cost_center, plus any of country, cc_name, function, owner. '
-                                          'Checks every cost centre is known and lists any with no data.')
-    st.download_button('Download sample cost centre master', sample_cc_master_csv(), 'sample_cost_centres.csv', 'text/csv')
-    gl_upload = st.file_uploader('GL mapping (optional, CSV or Excel)', type=['csv', 'xlsx'],
-                                 help='For data posted to GL codes. Columns: gl_code and account (the reporting account '
-                                      'it rolls up to), plus optional gl_name and pl_line. Many GL codes can share one account.')
-    gl_box = st.container()  # the mapping download, once the data is known
+    with st.expander('Master files (optional)', expanded=False):
+        master_upload = st.file_uploader('Cost / profit centre master (CSV)', type=['csv'],
+                                         help='Columns: cost_center (or profit_center), plus any of country, cc_name, function, '
+                                              'owner. List cost centres (costs) and profit centres (sales, cost of sales) '
+                                              'together. Checks every centre is known and lists any with no data.')
+        st.download_button('Sample centre master', sample_cc_master_csv(), 'sample_centres.csv', 'text/csv')
+        gl_upload = st.file_uploader('GL mapping (CSV or Excel)', type=['csv', 'xlsx'],
+                                     help='For data posted to GL codes. Columns: gl_code and account (the reporting account '
+                                          'it rolls up to), plus optional gl_name and pl_line. Many GL codes can share one account.')
+        gl_box = st.container()  # the mapping download, once the data is known
+        product_upload = st.file_uploader('Product master (CSV or Excel)', type=['csv', 'xlsx'],
+                                          help='For sales by SKU. Columns: sku, plus brand and/or category, optional sku_name. '
+                                               'Lets SKU-level sales be reviewed by brand or category. Not needed when the '
+                                               'sales file already has a brand column.')
+        product_box = st.container()
     notes_upload = st.file_uploader('Restore saved explanations (JSON)', type=['json'],
                                     help='A file from "Download explanations". Notes are re-checked against the current data.')
 client = ai_settings()
@@ -63,17 +73,20 @@ def gl_template_hint(codes):
                            help='Every GL code in your data, with the account left blank to fill in.')
 
 
-gl_map = gl_info = inputs = None
+gl_map = gl_info = inputs = product_master = product_info = None
 try:
     gl_raw = gl_upload.getvalue() if gl_upload is not None else b''
     gl_map = load_gl_map(table_csv(gl_raw, gl_upload.name)) if gl_raw else None
+    product_raw = product_upload.getvalue() if product_upload is not None else b''
+    product_master = load_product_master(table_csv(product_raw, product_upload.name)) if product_raw else None
     inputs = load_inputs(mode, uploads, gl_map)
-    if inputs['demo']:  # the demo posts to GL codes and comes with its own mapping
-        if gl_raw:
-            st.info('Your GL mapping is used once you upload your own data. The demo uses its sample mapping.')
+    if inputs['demo']:  # the demo posts to GL codes and SKUs, and comes with its own mapping and product master
+        if gl_raw or product_raw:
+            st.info('Your GL mapping and product master are used once you upload your own data. The demo uses its samples.')
         gl_map = load_gl_map(sample_gl_map_csv())
+        product_master = load_product_master(sample_product_master_csv())
     master_raw = master_upload.getvalue() if master_upload is not None else b''
-    fingerprint = hashlib.sha256(inputs['fingerprint'].encode() + b'\0' + master_raw + b'\0' + gl_raw).hexdigest()
+    fingerprint = hashlib.sha256(b'\0'.join((inputs['fingerprint'].encode(), master_raw, gl_raw, product_raw))).hexdigest()
     if st.session_state.get('evidence_source') != fingerprint:
         had_notes = bool(st.session_state.get('business_notes'))
         st.session_state.business_notes = {}
@@ -93,6 +106,10 @@ try:
             dataset.attrs[code].update(details)
     if gl_map is not None:
         dataset, gl_info = apply_gl_map(dataset, gl_map)
+    if product_master is not None:
+        dataset, product_info = apply_products(dataset, product_master)
+    else:
+        check_products(dataset)
     if master_raw:
         dataset, checks = apply_master(dataset, load_cc_master(master_raw.decode('utf-8-sig')))
     elif inputs['demo']:
@@ -104,6 +121,12 @@ except UnmappedGL as error:
     st.download_button('Download GL mapping with the new codes', mapping_workbook(gl_map, error.present, error.codes),
                        'gl_mapping.xlsx', XLSX, type='primary',
                        help='Your mapping plus the new codes, highlighted, with the account left blank to fill in.')
+    st.stop()
+except UnmappedSKU as error:
+    st.error(str(error))
+    st.download_button('Download product master with the new SKUs', product_workbook(product_master, error.present, error.codes),
+                       'product_master.xlsx', XLSX, type='primary',
+                       help='Your product master plus the new SKUs, highlighted, with brand and category left blank to fill in.')
     st.stop()
 except (ValueError, UnicodeError) as error:
     st.error(str(error))
@@ -122,12 +145,36 @@ elif looks_like_gl_codes({r['account'] for r in dataset}):
 else:
     with gl_box:
         st.download_button('Download sample GL mapping', sample_gl_map_csv(), 'sample_gl_mapping.csv', 'text/csv')
+with product_box:
+    skus = sorted({r['sku'] for r in dataset if 'sku' in r.get('dims', ())})
+    if product_info:
+        st.download_button('Download product master', product_workbook(product_master, skus), 'product_master.xlsx', XLSX,
+                           help='The product master in use, as Excel: edit it and upload it again.')
+    elif skus and 'brand' not in dataset.dims:
+        st.download_button(f'Download product master template ({len(skus)} SKUs)', product_workbook({}, skus, skus),
+                           'product_master.xlsx', XLSX, type='primary', help='Every SKU in your data, brand left blank to fill in.')
+    else:
+        st.download_button('Sample product master', sample_product_master_csv(), 'sample_products.csv', 'text/csv')
 
+org_dims = [d for d in dataset.dims if d not in PRODUCT_LEVELS]
+levels = product_levels(dataset.dims)  # coarse to fine, as available
 with level_box:
-    chosen_dims = st.multiselect('Analyse by', list(dataset.dims), default=list(dataset.dims), format_func=dim_label,
+    chosen_dims = st.multiselect('Analyse by', org_dims, default=org_dims, format_func=dim_label,
                                  help='Country and account are always included. Remove a level to add it up; '
-                                      'explanations are given at the level you choose.') if dataset.dims else []
-grain = [d for d in dataset.dims if d in chosen_dims]
+                                      'explanations are given at the level you choose. Costs sit on cost centres, '
+                                      'sales and cost of sales on profit centres.') if org_dims else []
+    product_level = None
+    if levels:
+        choices = levels[::-1] + ['total']  # finest first; 'total' adds products up to the account
+        product_level = st.selectbox('Sales and cost of sales by', choices,
+                                     index=choices.index('brand') if 'brand' in choices else 0,
+                                     format_func=lambda d: 'No product split' if d == 'total' else dim_label(d),
+                                     help='SKU is the finest level; brand and category add SKUs up. Explanations are '
+                                          'given at this level, with the finer items shown inside each line. Lines '
+                                          'without a product (tax, corporate costs) are not affected.')
+        product_level = None if product_level == 'total' else product_level
+grain = [d for d in org_dims if d in chosen_dims] + ([product_level] if product_level else [])
+finer = levels[levels.index(product_level) + 1:] if product_level else []  # for the drill-down
 level_name = ' × '.join(['Country'] + [dim_label(d) for d in grain] + ['Account'])
 rows = aggregate(dataset, grain)
 if grain:
@@ -243,9 +290,18 @@ if pl:
             st.altair_chart(bridge_chart(bridge(selected, baseline, measure), baseline), width='stretch')
             st.caption('The axis does not start at zero, so the steps are visible. Hover a bar for its amount.')
 
+product_rows = product_margins(selected, baseline, product_level) if pl and product_level else []
+if product_rows:
+    with st.container(border=True, key='card_products'):
+        name = dim_label(product_level)
+        section('🏷️', f'Sales and gross margin by {name.lower()}',
+                f'Sales, cost of sales and gross margin per {name.lower()}, actual vs {baseline}. Mix shows here: a calm '
+                'country total can hide one brand gaining and another losing.' + ('' if country == 'All countries' else f' {country} only.'))
+        margins_table(product_rows, name, baseline)
+
 if grain:
     with st.container(border=True, key='card_1'):
-        section('🗺️', 'Where the variance sits', 'Each cell is one cost centre × account. Outlined cells need an explanation.')
+        section('🗺️', 'Where the variance sits', 'Each row is one cost or profit centre' + (f' (and {dim_label(product_level).lower()} for sales)' if product_level else '') + ', each column an account. Outlined cells need an explanation.')
         st.html(heatmap_html(current_pack, None if country == 'All countries' else country))
 
 with st.container(border=True, key='card_2'):
@@ -258,7 +314,7 @@ with st.container(border=True, key='card_2'):
     if view == 'GL codes':
         gl_codes_view(dataset, grain, baseline, in_view)
     elif view == 'Lines':
-        display = [{'Country': r['country'], **{dim_label(d): r[d] for d in grain}, 'Account': r['account'],
+        display = [{'Country': r['country'], **{dim_label(d): r.get(d, '') for d in grain}, 'Account': r['account'],
                     **({'Owner': r.get('owner', '')} if has_owner else {}),
                     'Actual INR': float(r['actual']), f'{baseline.title()} INR': float(r[baseline]),
                     'Variance INR': float(r['variance']),
@@ -316,6 +372,8 @@ if material:
             which = 'actual' if target['actual'] < 0 else baseline
             st.warning(f"⚠️ Negative balance: the {which} is INR {target[which]:,.2f}. This is {NEGATIVE_NOTE}. "
                        'It needs an explanation whatever its size, and cannot be marked Recurring.')
+        if finer and product_level in target.get('dims', ()):  # a brand line: show its SKUs
+            product_breakdown(dataset, target, baseline, finer[-1])
         if gl_info:
             gl_breakdown(dataset, target, baseline)
         # Seed the widgets from the saved note through session state: a keyed widget keeps its old browser value

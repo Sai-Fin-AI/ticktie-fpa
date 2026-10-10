@@ -16,11 +16,23 @@ from decimal import Decimal, InvalidOperation
 REQUIRED = ('month', 'country', 'account', 'currency', 'actual', 'budget', 'forecast')
 FIELDS = REQUIRED
 AMOUNTS = ('actual', 'budget', 'forecast')
+# The responsibility centre a line was posted to: a cost centre for costs, a profit centre for sales and cost
+# of sales. Both have an owner, so one level (stored as cost_center) carries either; a profit_center column
+# is read into it. A file with both columns keeps the profit centre as an extra level.
 CC = 'cost_center'
 CC_ATTRS = ('cc_name', 'function', 'owner')
-ALIASES = {'cost_centre': CC, 'cost_center_code': CC, 'cost_centre_code': CC, 'cc_code': CC,
-           'cost_center_name': 'cc_name', 'cost_centre_name': 'cc_name', 'cc_owner': 'owner'}
-DIM_LABELS = {CC: 'Cost centre', 'country': 'Country', 'account': 'Account', 'function': 'Function'}
+CENTRE_ALIASES = {'cost_centre', 'cost_center_code', 'cost_centre_code', 'cc_code', 'profit_center', 'profit_centre',
+                  'profit_center_code', 'profit_centre_code', 'pc_code'}
+# Product hierarchy, coarse to fine. Sales and cost of sales may come by SKU, by brand only, or by category;
+# lines without a product (tax, a freight income line) leave these blank.
+PRODUCT_LEVELS = ('category', 'brand', 'sku')
+ALIASES = {**{a: CC for a in CENTRE_ALIASES},
+           'cost_center_name': 'cc_name', 'cost_centre_name': 'cc_name', 'profit_center_name': 'cc_name',
+           'profit_centre_name': 'cc_name', 'cc_owner': 'owner',
+           'sku_code': 'sku', 'item_code': 'sku', 'product_code': 'sku', 'material': 'sku', 'material_code': 'sku',
+           'brand_name': 'brand', 'product_category': 'category', 'product_group': 'category', 'category_name': 'category'}
+DIM_LABELS = {CC: 'Cost / profit centre', 'country': 'Country', 'account': 'Account', 'function': 'Function',
+              'sku': 'SKU', 'brand': 'Brand', 'category': 'Category'}
 SALES, OPEX = 'Sales', 'Operating expenses'
 PL_LINES = (SALES, 'Cost of sales', OPEX, 'Depreciation and amortisation', 'Interest', 'Tax')
 # (subtotal, number of P&L lines above it, show a margin %)
@@ -70,16 +82,31 @@ class Dataset(list):
         self.attrs = attrs or {}
 
 
+def _slug(header):
+    return re.sub(r'[\s\-]+', '_', header.strip().lower())
+
+
 def _column(header):
-    name = re.sub(r'[\s\-]+', '_', header.strip().lower())
+    name = _slug(header)
     return ALIASES.get(name, name)
+
+
+def extra_name(header):
+    """The level name for an extra column. A second centre column (profit centre next to a cost centre) keeps
+    its own name instead of colliding with the centre."""
+    name = _column(header)
+    return _slug(header) if name == CC else name
 
 
 def _header(reader):
     try:
-        names = [_column(h) for h in next(reader)]
+        raw = next(reader)
     except StopIteration:
         raise ValueError('The file is empty.') from None
+    names = [_column(h) for h in raw]
+    if names.count(CC) > 1:  # cost centre and profit centre: the exact cost_center column (or the first) is the centre
+        keep = next((i for i, h in enumerate(raw) if _slug(h) == CC), names.index(CC))
+        names = [n if n != CC or i == keep else _slug(raw[i]) for i, n in enumerate(names)]
     duplicates = sorted({n for n in names if names.count(n) > 1})
     if duplicates:
         raise ValueError('Each column name may appear once. Repeated: ' + ', '.join(duplicates))
@@ -91,6 +118,8 @@ def load_csv(text, default_line=OPEX):
 
     Amounts may be negative: a credit GL code, a reversal, a credit note. A line that nets below zero is
     flagged by review_lines and always needs an explanation.
+    Product levels (sku, brand, category) may be blank on a line that has no product, such as tax; each
+    row's 'dims' lists only the levels it carries.
     """
     reader = csv.reader(io.StringIO(text.lstrip('﻿')))
     names = _header(reader)
@@ -109,18 +138,19 @@ def load_csv(text, default_line=OPEX):
     for line, values in enumerate(reader, 2):
         if not values:
             continue
-        if len(values) != len(names) or any(not v.strip() for v in values):
+        if len(values) != len(names) or any(not v.strip() for n, v in zip(names, values) if n not in PRODUCT_LEVELS):
             raise ValueError(f'Row {line}: missing value or extra column. No values were assumed.')
         raw = dict(zip(names, (v.strip() for v in values)))
         if not re.fullmatch(r'\d{4}-(0[1-9]|1[0-2])', raw['month']):
             raise ValueError(f'Row {line}: month must be YYYY-MM.')
         if raw['currency'] != 'INR':
             raise ValueError(f'Row {line}: version 1 requires INR reporting amounts.')
-        key = (raw['month'], raw['country'], *(raw[d] for d in dims), raw['account'], raw['currency'])
+        own = tuple(d for d in dims if raw[d])
+        key = (raw['month'], raw['country'], *((d, raw[d]) for d in own), raw['account'], raw['currency'])
         if key in seen:
-            raise ValueError(f"Row {line}: duplicate month/country/{''.join(d + '/' for d in dims)}account/currency.")
+            raise ValueError(f"Row {line}: duplicate month/country/{''.join(d + '/' for d in own)}account/currency.")
         seen.add(key)
-        row = {k: raw[k] for k in ('month', 'country', 'account', 'currency', *dims)}
+        row = {k: raw[k] for k in ('month', 'country', 'account', 'currency', *own)}
         for field in AMOUNTS:
             try:
                 value = Decimal(raw[field])
@@ -143,7 +173,7 @@ def load_csv(text, default_line=OPEX):
         if lines_of.setdefault(raw['account'], line_name) != line_name:
             raise ValueError(f'Row {line}: account {raw["account"]} is on two P&L lines. An account belongs to one line.')
         row['pl_line'] = line_name
-        row['dims'] = tuple(dims)
+        row['dims'] = own
         rows.append(row)
     if not rows:
         raise ValueError('The file has no data rows.')
@@ -153,11 +183,11 @@ def load_csv(text, default_line=OPEX):
 
 
 def load_cc_master(text):
-    """Cost centre list: cost_center plus any of country, cc_name, function, owner. Other columns are ignored."""
+    """Cost and profit centre list: cost_center (or profit_center) plus any of country, cc_name, function, owner."""
     reader = csv.reader(io.StringIO(text.lstrip('﻿')))
     names = _header(reader)
     if CC not in names:
-        raise ValueError('The cost centre master needs a cost_center column.')
+        raise ValueError('The centre master needs a cost_center (or profit_center) column.')
     used = [c for c in ('country',) + CC_ATTRS if c in names]
     master = {}
     for line, values in enumerate(reader, 2):
@@ -177,18 +207,18 @@ def load_cc_master(text):
 def apply_master(dataset, master):
     """Return (dataset with master details, completeness warnings). Unknown or contradicting cost centres stop."""
     if CC not in dataset.dims:
-        raise ValueError('The data has no cost_center column, so a cost centre master cannot be applied.')
+        raise ValueError('The data has no cost or profit centre column, so a centre master cannot be applied.')
     unknown = sorted(set(dataset.attrs) - set(master))
     if unknown:
-        raise ValueError('Cost centres missing from the master: ' + ', '.join(unknown) + '.')
+        raise ValueError('Cost / profit centres missing from the master: ' + ', '.join(unknown) + '.')
     merged = {}
     for code, info in dataset.attrs.items():
         clash = [k for k, v in master[code].items() if k in info and info[k] != v]
         if clash:
-            raise ValueError(f'Cost centre {code}: the data and the master disagree on {", ".join(clash)}.')
+            raise ValueError(f'Centre {code}: the data and the master disagree on {", ".join(clash)}.')
         merged[code] = {**info, **master[code]}
     unused = sorted(set(master) - set(dataset.attrs))
-    warnings = ['Completeness check: no rows for cost centres ' + ', '.join(unused) + ' listed in the master.'] if unused else []
+    warnings = ['Completeness check: no rows for centres ' + ', '.join(unused) + ' listed in the master.'] if unused else []
     return Dataset(dataset, dataset.dims, merged), warnings
 
 
@@ -291,9 +321,10 @@ def gl_lines(dataset, dims, baseline):
     for r in dataset:
         if GL not in r:
             continue
-        key = (r['country'], *(r[d] for d in dims), r['account'], r[GL])
-        g = groups.setdefault(key, {'country': r['country'], **{d: r[d] for d in dims}, 'account': r['account'],
-                                    'pl_line': r['pl_line'], GL: r[GL], 'gl_name': r['gl_name'], 'dims': tuple(dims),
+        own = own_dims(r, dims)
+        key = (r['country'], *((d, r[d]) for d in own), r['account'], r[GL])
+        g = groups.setdefault(key, {'country': r['country'], **{d: r[d] for d in own}, 'account': r['account'],
+                                    'pl_line': r['pl_line'], GL: r[GL], 'gl_name': r['gl_name'], 'dims': own,
                                     'actual': Decimal(0), baseline: Decimal(0)})
         g['actual'] += r['actual']
         g[baseline] += r[baseline]
@@ -301,11 +332,16 @@ def gl_lines(dataset, dims, baseline):
     return sorted(out, key=lambda g: (-abs(g['variance']), g['country'], g[GL]))
 
 
+def same_line(row, line):
+    """True when a finer row adds up into an analysed line (same country, account and levels)."""
+    dims = line.get('dims', ())
+    return (row['country'] == line['country'] and row['account'] == line['account']
+            and own_dims(row, dims) == tuple(dims) and all(row[d] == line[d] for d in dims))
+
+
 def gl_detail(dataset, line, baseline):
     """The GL codes inside one analysed line."""
-    dims = line.get('dims', ())
-    return [g for g in gl_lines(dataset, dims, baseline)
-            if (g['country'], *(g[d] for d in dims), g['account']) == (line['country'], *(line[d] for d in dims), line['account'])]
+    return [g for g in gl_lines(dataset, line.get('dims', ()), baseline) if same_line(g, line)]
 
 
 def accounts_in(text):
@@ -323,19 +359,157 @@ def looks_like_gl_codes(accounts):
     return bool(accounts) and len(codes) * 2 >= len(accounts)
 
 
+# Product hierarchy: SKU -> brand -> category. A product master (optional) places each SKU in its brand and
+# category, so data that carries SKUs only can be reviewed by brand. Data may also come by brand alone.
+PRODUCT_COLUMNS = {**{k: v for k, v in ALIASES.items() if v in PRODUCT_LEVELS}, 'product': 'sku', 'item': 'sku',
+                   'sku_name': 'sku_name', 'product_name': 'sku_name', 'description': 'sku_name'}
+
+
+class UnmappedSKU(ValueError):
+    """SKUs in the data that the product master does not list."""
+
+    def __init__(self, codes, present):
+        self.codes, self.present = codes, present
+        shown = ', '.join(codes[:10]) + (f' and {len(codes) - 10} more' if len(codes) > 10 else '')
+        super().__init__(f'{len(codes)} SKU(s) in the data are not in the product master: {shown}. Download the '
+                         'product master below, fill in the brand (and category) for each new SKU, and upload it again.')
+
+
+def load_product_master(text):
+    """Product master: sku plus brand and/or category, optional sku_name. Returns {sku: {...}}."""
+    reader = csv.reader(io.StringIO(text.lstrip('﻿')))
+    names = [PRODUCT_COLUMNS.get(n, n) for n in _header(reader)]
+    if 'sku' not in names or not {'brand', 'category'} & set(names):
+        raise ValueError('The product master needs a sku column and a brand or category column.')
+    repeated = sorted({n for n in names if names.count(n) > 1})
+    if repeated:
+        raise ValueError('The product master has more than one column for ' + ', '.join(repeated) + '.')
+    used = [c for c in ('brand', 'category', 'sku_name') if c in names]
+    master, category_of = {}, {}
+    for line, values in enumerate(reader, 2):
+        if not any(v.strip() for v in values):
+            continue
+        if len(values) != len(names):
+            raise ValueError(f'Product master row {line}: missing value or extra column.')
+        raw = dict(zip(names, (v.strip() for v in values)))
+        sku = raw['sku']
+        if not sku:
+            raise ValueError(f'Product master row {line}: the sku is empty.')
+        if sku in master:
+            raise ValueError(f'Product master row {line}: SKU {sku} is listed twice.')
+        if not any(raw[c] for c in used if c != 'sku_name'):
+            raise ValueError(f'Product master row {line}: SKU {sku} has no brand or category. Fill it in.')
+        entry = {c: raw[c] for c in used if raw[c]}
+        if 'brand' in entry and 'category' in entry and category_of.setdefault(entry['brand'], entry['category']) != entry['category']:
+            raise ValueError(f"Product master row {line}: brand {entry['brand']} is in two categories. A brand sits in one category.")
+        master[sku] = entry
+    if not master:
+        raise ValueError('The product master has no rows.')
+    return master
+
+
+def apply_products(dataset, master):
+    """Give every line with a SKU its brand and category from the master. Unknown SKUs stop (UnmappedSKU);
+    a brand or category in the data that contradicts the master stops. A line with a brand but no SKU gets
+    the brand's category. Returns (dataset, summary)."""
+    present = sorted({r['sku'] for r in dataset if 'sku' in r.get('dims', ())})
+    unknown = [s for s in present if s not in master]
+    if unknown:
+        raise UnmappedSKU(unknown, present)
+    category_of = {e['brand']: e['category'] for e in master.values() if 'brand' in e and 'category' in e}
+    rows = []
+    for r in dataset:
+        r = dict(r)
+        have = set(r.get('dims', ()))
+        known = dict(master[r['sku']]) if 'sku' in have else {}
+        if 'category' not in known and (known.get('brand') or r.get('brand')) in category_of:
+            known['category'] = category_of[known.get('brand') or r['brand']]
+        for level in ('brand', 'category'):
+            if level in known:
+                if level in have and r[level] != known[level]:
+                    where = f"SKU {r['sku']}" if 'sku' in have else f"brand {r.get('brand')}"
+                    raise ValueError(f'{where}: the data says {level} {r[level]}, the product master says {known[level]}.')
+                r[level] = known[level]
+                have.add(level)
+        if 'sku' in have and known.get('sku_name'):
+            r['sku_name'] = known['sku_name']
+        r['dims'] = union_dims([d for d in r.get('dims', ()) if d not in PRODUCT_LEVELS] + sorted(have & set(PRODUCT_LEVELS)))
+        rows.append(r)
+    dims = union_dims(dataset.dims, *(r['dims'] for r in rows))
+    result = Dataset(rows, dims, dataset.attrs)
+    check_products(result)
+    return result, {'skus': len(present), 'brands': len({master[s].get('brand') for s in present} - {None}),
+                    'unused': [s for s in master if s not in set(present)]}
+
+
+def check_products(dataset):
+    """One place in the hierarchy per product: a SKU in one brand and category, a brand in one category."""
+    seen = {}
+    for r in dataset:
+        have = r.get('dims', ())
+        for child, parent in (('sku', 'brand'), ('sku', 'category'), ('brand', 'category')):
+            if child in have and parent in have:
+                first = seen.setdefault((child, r[child], parent), r[parent])
+                if first != r[parent]:
+                    raise ValueError(f'{dim_label(child)} {r[child]} is in two {parent == "brand" and "brands" or "categories"} '
+                                     f'({first} and {r[parent]}). Each product sits in one place in the hierarchy.')
+    return dataset
+
+
+def product_levels(dims):
+    return [d for d in PRODUCT_LEVELS if d in dims]
+
+
+def breakdown(dataset, line, baseline, level):
+    """The finer items (for example the SKUs) inside one analysed line, largest variance first."""
+    groups = {}
+    for r in dataset:
+        if level not in r.get('dims', ()) or not same_line(r, line):
+            continue
+        g = groups.setdefault(r[level], {level: r[level], 'name': r.get('sku_name', '') if level == 'sku' else '',
+                                         'actual': Decimal(0), baseline: Decimal(0), 'pl_line': r['pl_line']})
+        g['actual'] += r['actual']
+        g[baseline] += r[baseline]
+    out = [{**g, **compare(g['actual'], g[baseline], Decimal(0), Decimal(0), is_sales(g))} for g in groups.values()]
+    return sorted(out, key=lambda g: (-abs(g['variance']), g[level]))
+
+
+def product_margins(rows, baseline, level):
+    """Sales, cost of sales and gross margin per product (brand, SKU or category), for lines that carry one.
+
+    Each entry: label, sales/cogs/gm actual and baseline, sales_variance, sales_pct, gm_variance, gm_pct_actual,
+    gm_pct_baseline, gm_pts. Largest sales first.
+    """
+    groups = {}
+    for r in rows:
+        if level not in r.get('dims', ()) or r.get('pl_line') not in (SALES, 'Cost of sales'):
+            continue
+        g = groups.setdefault(r[level], {'sales': [Decimal(0), Decimal(0)], 'cogs': [Decimal(0), Decimal(0)]})
+        part = g['sales' if is_sales(r) else 'cogs']
+        part[0] += r['actual']
+        part[1] += r[baseline]
+    out = []
+    for label, g in groups.items():
+        (sa, sb), (ca, cb) = g['sales'], g['cogs']
+        ga, gb = sa - ca, sb - cb
+        pa, pb = (ga / sa * 100 if sa else None), (gb / sb * 100 if sb else None)
+        out.append({'label': label, 'sales_actual': sa, 'sales_baseline': sb, 'sales_variance': sa - sb,
+                    'sales_pct': (sa - sb) / abs(sb) * 100 if sb else None, 'cogs_actual': ca, 'cogs_baseline': cb,
+                    'gm_actual': ga, 'gm_baseline': gb, 'gm_variance': ga - gb, 'gm_pct_actual': pa, 'gm_pct_baseline': pb,
+                    'gm_pts': pa - pb if pa is not None and pb is not None else None})
+    return sorted(out, key=lambda e: (-e['sales_baseline'], e['label']))
+
+
 def merge_datasets(main, extra, name='The sales and P&L file'):
     """Add a second file (for example sales and other P&L lines) to the main expense data.
 
-    Both files must cover the same month and the same levels (cost centre, extra dimensions); a line may
-    appear in only one file, an account sits on one P&L line, and a cost centre keeps one set of details.
+    The files must cover the same month. Their levels may differ: costs by cost centre, sales by profit centre
+    and SKU or brand. Each line keeps its own levels. A line may appear in only one file, an account sits on
+    one P&L line, and a centre keeps one set of details.
     """
-    if tuple(main.dims) != tuple(extra.dims):
-        def show(dims):
-            return ', '.join(dim_label(d) for d in dims) or 'no extra levels'
-        raise ValueError(f'{name} must have the same levels as the main file ({show(main.dims)}); it has {show(extra.dims)}.')
     if main[0]['month'] != extra[0]['month']:
         raise ValueError(f"{name} is for {extra[0]['month']}, but the main file is for {main[0]['month']}.")
-    key = lambda r: (r['country'], *(r[d] for d in main.dims), r['account'])
+    key = lambda r: (r['country'], *(r[d] for d in r['dims']), r['account'])
     clash = sorted({' | '.join(key(r)) for r in extra} & {' | '.join(key(r)) for r in main})
     if clash:
         raise ValueError(f'{name} repeats lines that are already in the main file: ' + '; '.join(clash[:5]) + '.')
@@ -348,24 +522,40 @@ def merge_datasets(main, extra, name='The sales and P&L file'):
         known = attrs.setdefault(code, {})
         clash = [k for k, v in info.items() if k in known and known[k] != v]
         if clash:
-            raise ValueError(f'Cost centre {code}: the two files disagree on {", ".join(clash)}.')
+            raise ValueError(f'Centre {code}: the two files disagree on {", ".join(clash)}.')
         known.update(info)
-    return Dataset(list(main) + list(extra), main.dims, attrs)
+    return Dataset(list(main) + list(extra), union_dims(main.dims, extra.dims), attrs)
+
+
+def union_dims(*groups):
+    """Levels in a stable order: centre first, other levels as found, product levels last (coarse to fine)."""
+    found = list(dict.fromkeys(d for dims in groups for d in dims))
+    return tuple([d for d in found if d == CC] + [d for d in found if d != CC and d not in PRODUCT_LEVELS]
+                 + [d for d in PRODUCT_LEVELS if d in found])
+
+
+def own_dims(row, dims):
+    """The chosen levels this row carries (a tax line has no SKU; a cost line no brand)."""
+    have = row.get('dims', ())
+    return tuple(d for d in dims if d in have)
 
 
 def aggregate(rows, dims):
-    """Sum rows to month/country/<dims>/account. Cost centre details travel with the cost centre."""
+    """Sum rows to month/country/<dims>/account. Each row is summed on the chosen levels it carries, so cost
+    lines (by cost centre) and sales lines (by profit centre and brand) sit side by side. Centre details
+    travel with the centre."""
     dims = tuple(dims)
     attrs = getattr(rows, 'attrs', {}) if CC in dims else {}
     groups = {}
     for r in rows:
-        key = (r['month'], r['currency'], r['country'], *(r[d] for d in dims), r['account'])
+        own = own_dims(r, dims)
+        key = (r['month'], r['currency'], r['country'], *((d, r[d]) for d in own), r['account'])
         group = groups.get(key)
         if group is None:
             group = groups[key] = {'month': r['month'], 'country': r['country'], 'account': r['account'],
-                                   'pl_line': r.get('pl_line', OPEX), 'currency': r['currency'], **{d: r[d] for d in dims},
-                                   **{a: Decimal(0) for a in AMOUNTS}, 'dims': dims}
-            if CC in dims:
+                                   'pl_line': r.get('pl_line', OPEX), 'currency': r['currency'], **{d: r[d] for d in own},
+                                   **{a: Decimal(0) for a in AMOUNTS}, 'dims': own}
+            if CC in own:
                 group.update({k: v for k, v in attrs.get(r[CC], {}).items() if k in CC_ATTRS})
         for a in AMOUNTS:
             group[a] += r[a]
@@ -557,6 +747,10 @@ SAMPLE_CC = (
     ('AU-SAL', 'Australia', 'Australia Sales', 'Sales', 'Olivia Brown'),
     ('AU-OPS', 'Australia', 'Australia Operations', 'Operations', 'Jack Wilson'),
     ('AU-COR', 'Australia', 'Australia Corporate', 'Corporate', 'Sophie Taylor'),
+    # Profit centres: sales and cost of sales post here; the country's commercial head owns them.
+    ('PC-IN', 'India', 'India Commercial', 'Commercial', 'Rohan Iyer'),
+    ('PC-SG', 'Singapore', 'Singapore Commercial', 'Commercial', 'Sarah Lim'),
+    ('PC-AU', 'Australia', 'Australia Commercial', 'Commercial', 'Liam Murphy'),
 )
 
 
@@ -587,16 +781,30 @@ def sample_csv(level='cost_center'):
                  for country, cc, account, budget, change in SAMPLE_LINES])
 
 
-# The second demo file: sales and the P&L lines below and around operating expenses, on the same cost
-# centres. Together with the expense sample it gives Sales 30.5m vs 30.0m down to Net profit 2.265m vs 2.475m.
-# No line here is material at the demo thresholds, so the expense explanations stay the review's focus.
-SAMPLE_PL_LINES = (
-    ('India', 'IN-SAL', 'Product sales', 'Sales', 12000000, 300000),
-    ('Singapore', 'SG-SAL', 'Product sales', 'Sales', 9000000, -200000),
-    ('Australia', 'AU-SAL', 'Product sales', 'Sales', 9000000, 400000),
-    ('India', 'IN-OPS', 'Cost of goods sold', 'Cost of sales', 5400000, 250000),
-    ('Singapore', 'SG-OPS', 'Cost of goods sold', 'Cost of sales', 4050000, -50000),
-    ('Australia', 'AU-OPS', 'Cost of goods sold', 'Cost of sales', 4050000, 200000),
+# The second demo file: sales and cost of sales by profit centre and SKU, plus depreciation, interest and tax on
+# corporate cost centres (no SKU). Together with the expense sample: Sales 30.5m vs 30.0m down to Net profit.
+# Fictional products: (sku, name, brand, category).
+SAMPLE_SKUS = (
+    ('AUR-100', 'Aurora Shampoo 200ml', 'Aurora', 'Personal care'),
+    ('AUR-200', 'Aurora Conditioner 200ml', 'Aurora', 'Personal care'),
+    ('NIM-100', 'Nimbus Soap 4-pack', 'Nimbus', 'Personal care'),
+    ('NIM-200', 'Nimbus Body Wash 250ml', 'Nimbus', 'Personal care'),
+    ('BRZ-100', 'Breeze Detergent 1kg', 'Breeze', 'Home care'),
+    ('BRZ-200', 'Breeze Dishwash 500ml', 'Breeze', 'Home care'),
+)
+PROFIT_CENTRES = {'India': 'PC-IN', 'Singapore': 'PC-SG', 'Australia': 'PC-AU'}
+# Per country, per SKU in SAMPLE_SKUS order: (sales budget, sales change, cost of sales change). Cost of sales is
+# budgeted at 45% of sales. India's story: Nimbus loses 360k of sales (a delisting), Aurora's cost of sales rises
+# 300k (input costs), and the country total still looks calm (+300k sales), so the mix hides inside the net.
+SAMPLE_SKU_MOVES = {
+    'India': ((3000000, 250000, 200000), (2000000, 150000, 100000), (2500000, -300000, -80000),
+              (1000000, -60000, -20000), (2500000, 150000, 30000), (1000000, 110000, 20000)),
+    'Singapore': ((2500000, -150000, -40000), (1500000, -50000, -20000), (2000000, 50000, 20000),
+                  (1000000, 0, 0), (1200000, -30000, -5000), (800000, -20000, -5000)),
+    'Australia': ((2000000, 100000, 60000), (1000000, 50000, 30000), (2000000, 50000, 30000),
+                  (1000000, 0, 0), (2000000, 150000, 60000), (1000000, 50000, 20000)),
+}
+SAMPLE_CORPORATE_LINES = (  # (country, cost centre, account, P&L line, budget, change)
     ('India', 'IN-COR', 'Depreciation', 'Depreciation and amortisation', 300000, 0),
     ('Singapore', 'SG-OPS', 'Depreciation', 'Depreciation and amortisation', 300000, 0),
     ('Australia', 'AU-COR', 'Depreciation', 'Depreciation and amortisation', 300000, 0),
@@ -609,15 +817,32 @@ SAMPLE_PL_LINES = (
 )
 
 
+def _sample_pl_lines():
+    """(country, centre, sku, account, P&L line, budget, change) for every line of the sales and P&L sample."""
+    out = []
+    for account, line in (('Product sales', SALES), ('Cost of goods sold', 'Cost of sales')):
+        for country, moves in SAMPLE_SKU_MOVES.items():
+            for (sku, *_), (budget, change, cogs_change) in zip(SAMPLE_SKUS, moves):
+                out.append((country, PROFIT_CENTRES[country], sku, account, line,
+                            *((budget, change) if line == SALES else (budget * 45 // 100, cogs_change))))
+    return out + [(country, cc, '', account, line, budget, change)
+                  for country, cc, account, line, budget, change in SAMPLE_CORPORATE_LINES]
+
+
 def sample_pl_csv():
-    """Fictional August 2026 sales and other P&L lines, with an explicit pl_line column."""
-    return _csv(('month', 'country', CC, 'account', 'pl_line', 'currency', 'actual', 'budget', 'forecast'),
-                [('2026-08', country, cc, account, line, 'INR', budget + change, budget, budget + change // 2)
-                 for country, cc, account, line, budget, change in SAMPLE_PL_LINES])
+    """Fictional August 2026 sales and other P&L lines: profit centre and SKU for sales and cost of sales, an
+    explicit pl_line column. Brands come from the product master."""
+    return _csv(('month', 'country', 'profit_center', 'sku', 'account', 'pl_line', 'currency', 'actual', 'budget', 'forecast'),
+                [('2026-08', country, centre, sku, account, line, 'INR', budget + change, budget, budget + change // 2)
+                 for country, centre, sku, account, line, budget, change in _sample_pl_lines()])
+
+
+def sample_product_master_csv():
+    return _csv(('sku', 'sku_name', 'brand', 'category'), SAMPLE_SKUS)
 
 
 def sample_cc_master_csv():
-    """Includes SG-COR, which has no August rows, to show the completeness check."""
+    """Cost centres and profit centres. Includes SG-COR, which has no August rows, to show the completeness check."""
     return _csv((CC, 'country', 'cc_name', 'function', 'owner'), SAMPLE_CC)
 
 
@@ -648,11 +873,11 @@ def _split(total, shares):
     return parts
 
 
-def _gl_rows(country, cc, account, budget, change):
+def _gl_rows(country, cc, account, budget, change, *levels):
     codes = SAMPLE_GL[account]
     budgets = _split(budget, [c[2] for c in codes])
     changes, halves = _split(change, [c[3] for c in codes]), _split(change // 2, [c[3] for c in codes])
-    return [('2026-08', country, cc, code, 'INR', b + d, b, b + h)
+    return [('2026-08', country, cc, *levels, code, 'INR', b + d, b, b + h)
             for (code, *_), b, d, h in zip(codes, budgets, changes, halves)]
 
 
@@ -664,13 +889,13 @@ def sample_gl_csv():
 
 def sample_gl_pl_csv():
     """The sales and P&L sample at GL code level. No pl_line column: the GL mapping places each account."""
-    return _csv(('month', 'country', CC, 'account', 'currency', 'actual', 'budget', 'forecast'),
-                [row for country, cc, account, _, budget, change in SAMPLE_PL_LINES
-                 for row in _gl_rows(country, cc, account, budget, change)])
+    return _csv(('month', 'country', 'profit_center', 'sku', 'account', 'currency', 'actual', 'budget', 'forecast'),
+                [row for country, centre, sku, account, _, budget, change in _sample_pl_lines()
+                 for row in _gl_rows(country, centre, account, budget, change, sku)])
 
 
 def sample_gl_map_csv():
-    lines = {account: line for _, _, account, line, _, _ in SAMPLE_PL_LINES}
+    lines = {account: line for _, _, _, account, line, _, _ in _sample_pl_lines()}
     return _csv((GL, 'gl_name', 'account', 'pl_line'),
                 [(code, name, account, lines.get(account, OPEX))
                  for account, codes in SAMPLE_GL.items() for code, name, _, _ in codes])

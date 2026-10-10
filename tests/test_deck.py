@@ -38,14 +38,14 @@ def slide_texts(pptx):
 
 
 def good_headlines():
-    return {'headlines': {'summary': 'Expenses INR 365,000 above budget; 50% explained',
+    return {'headlines': {'summary': 'Expenses INR 365,000 above budget; 66% explained',
                           'bridge': 'Distribution adds INR 340,000 to the budget-to-actual bridge',
                           'top': 'India Operations Distribution leads at INR 240,000',
                           'heatmap': 'Overspend concentrates in Distribution and Consulting',
                           'offsets': 'Singapore Employee costs nets to INR 0 but moves INR 180,000 gross',
                           'owners': 'Priya Nair holds INR 170,000 of open variance',
-                          'outlook': 'Recurring INR 90,000 needs a forecast update'},
-            'summary': ['Actual INR 12,375,000 vs budget INR 12,010,000.', 'INR 515,000 remains unexplained.',
+                          'outlook': 'Recurring INR 390,000 needs a forecast update'},
+            'summary': ['Actual INR 12,375,000 vs budget INR 12,010,000.', 'INR 575,000 remains unexplained.',
                         'Distribution is the largest account movement.']}
 
 
@@ -61,8 +61,8 @@ class DeckFigureTests(unittest.TestCase):
         self.assertEqual(sum(steps.values()), D('-265000'))
         split = timing_split(self.pack)
         self.assertEqual((split['One-off'], split['Recurring'], split['Timing difference'], split['Unexplained']),
-                         (D('270000'), D('90000'), D('150000'), D('515000')))
-        self.assertEqual(sum(v for k, v in split.items() if k != 'Unexplained'), D('510000'))
+                         (D('570000'), D('390000'), D('150000'), D('575000')))
+        self.assertEqual(sum(v for k, v in split.items() if k != 'Unexplained'), D('1110000'))
         self.assertEqual(owner_table(self.pack)[0][0], 'Priya Nair')
         self.assertEqual(owner_table(self.pack)[0][1]['open'], D('170000'))
 
@@ -71,7 +71,7 @@ class DeckFigureTests(unittest.TestCase):
         extra = derived_records(self.pack)
         self.assertTrue(misattributed_figures('India Distribution is INR 340,000 above budget.', self.pack, extra))
         for ok in ('Distribution adds INR 340,000', 'India Operations Distribution leads at INR 240,000',
-                   'Priya Nair holds INR 170,000', 'Recurring INR 90,000', 'Total INR 365,000 above budget'):
+                   'Priya Nair holds INR 170,000', 'Recurring INR 390,000', 'Total INR 365,000 above budget'):
             with self.subTest(ok=ok):
                 self.assertEqual(misattributed_figures(ok, self.pack, extra), [])
 
@@ -84,9 +84,9 @@ class DeckBuildTests(unittest.TestCase):
         result = make_deck(self.pack, FakeClient(good_headlines()))
         self.assertEqual((result['issues'], result['source']), ([], 'AI (Fake model), tick-and-tied'))
         deck, texts = slide_texts(result['pptx'])
-        self.assertEqual(len(deck.slides), 11)
+        self.assertEqual(len(deck.slides), 12)
         self.assertAlmostEqual(Emu(deck.slide_width).inches, 13.333, places=2)
-        self.assertEqual(result['slides'], 11)
+        self.assertEqual(result['slides'], 12)
         self.assertIn('P&L variance review\nAugust 2026', texts[0])
         self.assertIn(self.pack['content_hash'][:12], texts[0])
         self.assertIn('Net profit INR 195,000 below budget; EBITDA INR 265,000 below', texts[2])
@@ -97,13 +97,15 @@ class DeckBuildTests(unittest.TestCase):
         self.assertEqual(list(charts[0].chart.plots[0].categories),
                          ['Budget', 'Product sales', 'Cost of goods sold', 'Distribution', 'Consulting', 'Employee costs',
                           'Warehousing', 'Recruitment', 'Actual'])
-        self.assertIn('Arjun Mehta', texts[4])
-        self.assertIn('+240k', texts[5])
-        self.assertIn('Singapore | Employee costs', texts[6])
-        self.assertIn('Priya Nair', texts[7])
-        self.assertIn('Recurring INR 90,000', texts[8])
-        self.assertIn('Lines needing explanation (1–12 of 14)', texts[9])
-        self.assertIn('(13–14 of 14)', texts[10])
+        self.assertIn('SALES AND GROSS MARGIN BY BRAND', texts[4])
+        self.assertIn('Breeze adds INR 410,000 of sales; Nimbus loses INR 260,000', texts[4])
+        self.assertIn('Arjun Mehta', texts[5])
+        self.assertIn('+240k', texts[6])
+        self.assertIn('India | Product sales\nNet +300,000, gross 1,020,000: offsetting lines hide 720,000.', texts[7])  # brand mix
+        self.assertIn('Priya Nair', texts[8])
+        self.assertIn('Recurring INR 390,000', texts[9])
+        self.assertIn('Lines needing explanation (1–12 of 16)', texts[10])
+        self.assertIn('(13–16 of 16)', texts[11])
         self.assertEqual([k for k, _ in result['outline']][:4], ['Title', 'Executive summary', 'Profit and loss', 'Bridge'])
 
     def test_bridge_follows_the_choice_on_screen(self):
@@ -176,8 +178,8 @@ class DeckAppTests(unittest.TestCase):
         self.assertFalse(app.exception)
         deck = app.session_state['ai_deck']
         self.assertTrue(deck['source'].startswith('AI (Demo'), deck['issues'])
-        self.assertEqual(len(Presentation(io.BytesIO(deck['pptx'])).slides), 11)
-        self.assertTrue(any('CFO deck' in x.value and '11 slides' in x.value for x in app.markdown))
+        self.assertEqual(len(Presentation(io.BytesIO(deck['pptx'])).slides), 12)
+        self.assertTrue(any('CFO deck' in x.value and '12 slides' in x.value for x in app.markdown))
         self.assertIn('✔ Tick-and-tie passed', app.session_state['ai_commentary']['html'])
         next(r for r in app.radio if r.label == 'Deck headlines').set_value('Standard, written by the engine').run()
         button('Draft CFO commentary and deck').click().run()

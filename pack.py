@@ -12,8 +12,8 @@ from decimal import Decimal
 from openpyxl import Workbook
 from openpyxl.styles import Font
 
-from finance import (CC, CC_ATTRS, OPEX, SUBTOTALS, analyze, bridge, compare, dim_label, has_sales, is_sales, line_label, review_lines,
-                     statement)
+from finance import (CC, CC_ATTRS, OPEX, PRODUCT_LEVELS, SUBTOTALS, analyze, bridge, compare, dim_label, has_sales, is_sales,
+                     line_label, product_margins, review_lines, statement, union_dims)
 from evidence import accepted_amount, evidence_commentary, make_note, note_key
 
 SCHEMA_VERSION = '1'
@@ -83,7 +83,7 @@ def build_pack(rows, baseline, amount_threshold, pct_threshold, notes, total_thr
     what was done about each (validate.log); fingerprinted with the figures, so the audit trail
     cannot be changed after locking.
     """
-    grain = list(rows[0].get('dims', ()))
+    grain = list(union_dims(*(r.get('dims', ()) for r in rows)))  # lines may differ: centre for costs, + brand for sales
     total_thresholds = total_thresholds if grain else None
     kind = 'pl' if has_sales(rows) else 'expense'
     sign = lambda r: (1 if is_sales(r) else -1) if kind == 'pl' else 1  # P&L totals are net profit
@@ -93,7 +93,7 @@ def build_pack(rows, baseline, amount_threshold, pct_threshold, notes, total_thr
     lines, explained, unexplained, open_items = [], Decimal('0'), Decimal('0'), 0
     for r in review_lines(rows, baseline, (amount_threshold, pct_threshold), total_thresholds):
         note = notes.get(note_key(r, baseline))
-        line = {'label': line_label(r), 'country': r['country'], 'dims': {d: r[d] for d in grain},
+        line = {'label': line_label(r), 'country': r['country'], 'dims': {d: r[d] for d in r.get('dims', ())},
                 'attrs': {a: r[a] for a in CC_ATTRS if r.get(a)}, 'account': r['account'],
                 'pl_line': r.get('pl_line', OPEX), 'impact': r['variance'] * (1 if is_sales(r) else -1) if r['variance'] else Decimal(0),
                 'actual': r['actual'],
@@ -125,6 +125,7 @@ def build_pack(rows, baseline, amount_threshold, pct_threshold, notes, total_thr
         'lines': lines,
         'outlook': fy_outlook(lines, rows[0]['month'], fy_start, kind == 'pl'),
         'rollups': _rollups(lines, grain, total_thresholds, hidden_floor),
+        **_products(rows, baseline, grain),
         **({'data_checks': list(data_log)} if data_log else {})})
     return {**content, 'content_hash': _fingerprint(content)}
 
@@ -145,14 +146,28 @@ def rollup_views(grain, lines):
     """Which summary views make sense for this grain: (view name, label, key function)."""
     if not grain:
         return []
+    # A view's key is None for a line without that level (a cost line has no brand); such lines are left out.
     views = [('account', 'Account', lambda l: (l['country'], l['account']))]
     if CC in grain:
-        views.append(('cost_center', 'Cost centre',
-                      lambda l: (l['country'], f"{l['dims'][CC]} {l['attrs'].get('cc_name', '')}".strip())))
+        views.append(('cost_center', dim_label(CC),
+                      lambda l: (l['country'], f"{l['dims'][CC]} {l['attrs'].get('cc_name', '')}".strip()) if CC in l['dims'] else None))
     if any(l['attrs'].get('function') for l in lines):
         views.append(('function', 'Function', lambda l: (l['attrs'].get('function', 'Unassigned'),)))
-    views += [(d, dim_label(d), lambda l, d=d: (l['dims'][d],)) for d in grain if d != CC]
+    views += [(d, dim_label(d), lambda l, d=d: (l['dims'][d],) if d in l['dims'] else None) for d in grain if d != CC]
     return views
+
+
+def _products(rows, baseline, grain):
+    """Sales and gross margin per product, at the product level the review is analysed by (P&L reviews only)."""
+    level = next((d for d in reversed(PRODUCT_LEVELS) if d in grain), None)
+    if not level or not has_sales(rows):
+        return {}
+    return {'products': {'level': level, 'rows': product_margins(rows, baseline, level)}}
+
+
+def sheet_title(label):
+    """'Cost / profit centre' is not a valid Excel sheet name ('/' is not allowed)."""
+    return label.replace('cost / profit centre', 'centre')
 
 
 def _rollups(lines, grain, total_thresholds, hidden_floor):
@@ -161,7 +176,8 @@ def _rollups(lines, grain, total_thresholds, hidden_floor):
     for view, _, key in rollup_views(grain, lines):
         groups = {}
         for line in lines:
-            groups.setdefault(key(line), []).append(line)
+            if key(line) is not None:
+                groups.setdefault(key(line), []).append(line)
         entries = []
         for parts, members in groups.items():
             # A group holding both sales and costs (a sales cost centre in a P&L review) is summed as its
@@ -287,11 +303,23 @@ def pack_excel(pack):
             if not row[0].value.startswith('    ') and label in {s[0] for s in SUBTOTALS} | {'Sales'}:
                 for cell in row:
                     cell.font = bold
+    products = pack.get('products')
+    if products:
+        name = dim_label(products['level'])
+        share = lambda v: _money(v) / 100 if v is not None else 'N/A'
+        sheet(f'Margins by {name.lower()}', [name, 'Sales actual', f'Sales {base.lower()}', 'Sales variance', 'Sales variance %',
+                                             'Gross margin actual', f'Gross margin {base.lower()}', 'Gross margin %',
+                                             f'Gross margin % {base.lower()}', 'Change (pts)'],
+              [(e['label'], _money(e['sales_actual']), _money(e['sales_baseline']), _money(e['sales_variance']), share(e['sales_pct']),
+                _money(e['gm_actual']), _money(e['gm_baseline']), share(e['gm_pct_actual']), share(e['gm_pct_baseline']),
+                round(_money(e['gm_pts']), 2) if e['gm_pts'] is not None else 'N/A') for e in products['rows']],
+              money_cols=('Sales actual', f'Sales {base.lower()}', 'Sales variance', 'Gross margin actual', f'Gross margin {base.lower()}'),
+              pct_cols=('Sales variance %', 'Gross margin %', f'Gross margin % {base.lower()}'))
     has_owner = any(l['attrs'].get('owner') for l in pack['lines'])
     ids = ['Country'] + [dim_label(d) for d in grain] + ['Account'] + (['Owner'] if has_owner else [])
 
     def who(l):
-        return (l['country'], *(l['dims'][d] for d in grain), l['account']) + ((l['attrs'].get('owner', ''),) if has_owner else ())
+        return (l['country'], *(l['dims'].get(d, '') for d in grain), l['account']) + ((l['attrs'].get('owner', ''),) if has_owner else ())
 
     sheet('Variances', ids + ['Actual', base, 'Variance', 'Variance %', 'Outcome', 'Needs explanation'],
           [who(l) + (_money(l['actual']), _money(l['baseline']), _money(l['variance']),
@@ -311,7 +339,7 @@ def pack_excel(pack):
           [who(l) + (_money(l['variance']), _money(l['unexplained']), open_reason(l))
            for l in material if open_reason(l)], money_cols=('Variance', 'Unexplained'))
     for view, label, _ in rollup_views(grain, pack['lines']):
-        sheet(f'By {label.lower()}', [label, 'Actual', base, 'Net variance', 'Gross movement', 'Hidden by offsets',
+        sheet(sheet_title(f'By {label.lower()}'), [label, 'Actual', base, 'Net variance', 'Gross movement', 'Hidden by offsets',
                                       'Lines to explain', 'Explained (confirmed)', 'Unexplained', 'Flags'],
               [(e['label'], _money(e['actual']), _money(e['baseline']), _money(e['net']), _money(e['gross']), _money(e['hidden']),
                 e['to_explain'], _money(e['explained']), _money(e['unexplained']), ', '.join(e['flags']))

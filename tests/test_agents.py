@@ -40,11 +40,15 @@ class FakeClient:
 
 
 def key(line):
-    return f"{line['dims']['cost_center']}|{line['account']}"
+    brand = line['dims'].get('brand')
+    return f"{line['dims']['cost_center']}{'/' + brand if brand else ''}|{line['account']}"
 
 
 def good_reply(pack):
     text = {
+        'PC-IN/Nimbus|Product sales': 'Sales were INR 360,000.00 below budget, an unfavorable movement. A retailer delisting '
+                                      'explains INR 300,000.00; INR 60,000.00 remains unexplained.',
+        'PC-IN/Aurora|Cost of goods sold': 'Costs were INR 300,000.00 above budget, fully explained by higher input costs.',
         'IN-OPS|Distribution': 'Costs were INR 240,000.00 above budget. Urgent air freight explains INR 180,000.00; '
                                'INR 60,000.00 remains unexplained.',
         'AU-SAL|Employee costs': 'Costs were INR 150,000.00 below budget, a favorable movement fully explained by two vacant roles.',
@@ -57,7 +61,7 @@ def good_reply(pack):
                               'The actual is a negative balance of INR −5,000.00.'}
     return {'executive_summary': ['Expenses were INR 365,000.00 above budget, an unfavorable outcome.',
                                   'Singapore Employee costs net INR 0.00 hides INR 180,000.00 of offsetting movements.',
-                                  'INR 515,000.00 remains unexplained across 10 open items.'],
+                                  'INR 575,000.00 remains unexplained across 11 open items.'],
             'lines': [{'line_id': i, 'commentary': text[key(l)]} for i, l in material_lines(pack) if l['note']]}
 
 
@@ -118,7 +122,7 @@ class InterviewerTests(unittest.TestCase):
         self.assertEqual(found['SG-OPS|Warehousing']['quality'], 'missing')
         self.assertIn('below the line threshold', found['IN-OPS|Employee costs']['questions'][0])
         sent = json.loads(client.calls[0][1])
-        self.assertEqual(len(sent), 7)
+        self.assertEqual(len(sent), 9)
         self.assertIn('cost_centre', sent[0])
         self.assertNotIn('amount_stated', sent[0])
 
@@ -155,7 +159,7 @@ class WriterTests(unittest.TestCase):
         write_commentary(self.pack, client)
         facts = json.loads(client.calls[0][1])
         self.assertTrue(any('Singapore | Employee costs' in o and 'INR 180,000.00' in o for o in facts['offsets']))
-        self.assertEqual(facts['analysed_by'], 'country x cost center x account')
+        self.assertEqual(facts['analysed_by'], 'country x cost center x brand x account')
 
     def test_bad_draft_is_retried_with_the_problems(self):
         bad = good_reply(self.pack)
@@ -182,7 +186,7 @@ class WriterTests(unittest.TestCase):
             self.assertNotIn('See L03', output)
             self.assertNotIn('FAILED', output)
         self.assertIn('2 AI item(s) that failed the check use standard wording instead', result['markdown'])
-        self.assertTrue(result['reply']['lines'][0]['commentary'].startswith('Expense is INR'))
+        self.assertTrue(result['reply']['lines'][0]['commentary'].startswith('Revenue is INR'))  # the Nimbus sales line
 
     def test_ai_down_gives_standard_commentary(self):
         result = write_commentary(self.pack, FakeClient(AIError('Could not reach Ollama.')))
@@ -252,7 +256,7 @@ class AIAppTests(unittest.TestCase):
         app = AppTest.from_file(str(APP), default_timeout=30).run()
         button = lambda label: next(b for b in app.button if b.label == label)
         button('Load demo explanations').click().run()
-        self.assertTrue(any('Loaded 7 demo explanations' in x.value for x in app.success))
+        self.assertTrue(any('Loaded 9 demo explanations' in x.value for x in app.success))
         button('Ask the interviewer').click().run()
         self.assertFalse(app.exception)
         self.assertTrue(any('vague wording' in x.value for x in app.markdown))
@@ -274,19 +278,19 @@ class ReportTests(unittest.TestCase):
         page = write_commentary(self.pack, FakeClient(good_reply(self.pack)))['html']
         for expected in ('▲ Unfavorable', '▼ Favorable', '✅ Confirmed', '🟡 Unconfirmed', '🔴 Conflicting',
                          '⚪ Explanation pending', '① One-off', 'Explained INR 180,000.00 (75%)', 'Fully explained',
-                         'Not counted until resolved', 'Open items (10)', '☐', '✔ Tick-and-tie passed', 'INR 2,270,000', '⚠ Negative balance',
+                         'Not counted until resolved', 'Open items (11)', '☐', '✔ Tick-and-tie passed', 'INR 2,270,000', '⚠ Negative balance',
                          'Profit and loss', 'Gross margin', 'EBITDA margin',
                          'Where the variance sits', '👤 Arjun Mehta', '⇅ Offsetting movements',
                          'Σ Part of a material account total', 'offsets hide INR 80,000.00'):
             self.assertIn(expected, page)
-        self.assertEqual(page.count('border-left:5px solid'), 14)
+        self.assertEqual(page.count('border-left:5px solid'), 16)
 
     def test_heatmap_cells_totals_and_filter(self):
         from report_html import heatmap_html
         grid = heatmap_html(self.pack)
         self.assertIn('+240k', grid)
         self.assertIn('−90k', grid)
-        self.assertEqual(grid.count('outline:2px solid'), 14)
+        self.assertEqual(grid.count('outline:2px solid'), 16)
         self.assertIn('−195k', grid)  # P&L demo: the grand net is profit impact (net profit 195k below budget)
         india = heatmap_html(self.pack, 'India')
         self.assertNotIn('Singapore', india)

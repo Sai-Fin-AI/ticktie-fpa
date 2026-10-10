@@ -12,20 +12,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from finance import (SALES, aggregate, analyze, apply_master, load_cc_master, load_csv, merge_datasets,  # noqa: E402
-                     sample_cc_master_csv, sample_csv, sample_pl_csv)
+from finance import (CC, SALES, aggregate, analyze, apply_master, apply_products, load_cc_master, load_csv,  # noqa: E402
+                     load_product_master, merge_datasets, sample_cc_master_csv, sample_csv, sample_pl_csv,
+                     sample_product_master_csv)
 from evidence import make_note  # noqa: E402
 from pack import build_pack, export_notes, lock_pack  # noqa: E402
 from llm import Client  # noqa: E402
 from agents.interviewer import interview  # noqa: E402
 from agents.writer import write_commentary  # noqa: E402
 
-# The app's default settings for the sample data: analysed by cost centre, budget basis.
+# The app's default settings for the sample data: analysed by cost / profit centre, sales by brand, budget basis.
+GRAIN = (CC, 'brand')
 LINE_THRESHOLDS = (Decimal('25000'), Decimal('10'))
 TOTAL_THRESHOLDS = (Decimal('50000'), Decimal('5'))
 
-# Fictional explanations on the budget basis, one per review situation.
+# Fictional explanations on the budget basis, one per review situation. A line is centre|account, or centre/brand|account.
 DEMO_NOTES = [
+    ('PC-IN/Nimbus', 'Product sales', 'A key retailer delisted Nimbus Soap for three weeks during its range reset; '
+     'listings returned on 25 August.', 'Fictional retailer range-review letter RR-0826', '300000', 'Confirmed by reviewer',
+     'One-off', 'Agree a promotional plan with the retailer to recover the lost weeks.'),
+    ('PC-IN/Aurora', 'Cost of goods sold', 'Resin and fragrance input costs rose 12% from July under the new supplier contract.',
+     'Fictional supplier price notice SP-0701', '300000', 'Confirmed by reviewer', 'Recurring',
+     'Review Aurora pricing in the September reforecast.'),
     ('IN-OPS', 'Distribution', 'Urgent air freight for festive-season launch stock after a supplier delay.',
      'Fictional freight invoices FR-0812', '180000', 'Confirmed by reviewer', 'One-off',
      'Agree a lead-time buffer with the supplier.'),
@@ -47,14 +55,20 @@ DEMO_NOTES = [
 
 
 def demo_rows():
-    """The app's demo: the expense sample plus the sales and P&L sample, with the cost centre master."""
+    """The app's demo: the expense sample plus the sales and P&L sample (profit centres and SKUs), with the
+    product master and the centre master, analysed by centre and brand."""
     combined = merge_datasets(load_csv(sample_csv()), load_csv(sample_pl_csv(), default_line=SALES))
+    combined, _ = apply_products(combined, load_product_master(sample_product_master_csv()))
     dataset, _ = apply_master(combined, load_cc_master(sample_cc_master_csv()))
-    return aggregate(dataset, dataset.dims)
+    return aggregate(dataset, GRAIN)
+
+
+def line_name(row):
+    return row['cost_center'] + (f"/{row['brand']}" if row.get('brand') else '')
 
 
 def demo_notes(rows, basis='budget'):
-    by_line = {(r['cost_center'], r['account']): r for r in analyze(rows, basis)}
+    by_line = {(line_name(r), r['account']): r for r in analyze(rows, basis)}
     notes = {}
     for cost_center, account, *fields in DEMO_NOTES:
         note = make_note(by_line[(cost_center, account)], basis, *fields)

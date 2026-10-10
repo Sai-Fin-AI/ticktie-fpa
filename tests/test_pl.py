@@ -40,8 +40,10 @@ class PLLineTests(unittest.TestCase):
 
     def test_merge_refuses_mismatched_files(self):
         main = load_csv(sample_csv())
-        with self.assertRaisesRegex(ValueError, 'same levels'):
-            merge_datasets(main, load_csv(sample_csv('account')))
+        mixed = merge_datasets(main, load_csv(HEADER.replace('cost_center', 'profit_center,sku')
+                                              + '2026-08,India,PC-IN,AUR-1,Product sales,INR,5,4,4\n', 'Sales'))
+        self.assertEqual(mixed.dims, ('cost_center', 'sku'))  # levels may differ: costs by cost centre, sales by SKU
+        self.assertEqual(mixed[-1]['dims'], ('cost_center', 'sku'))
         with self.assertRaisesRegex(ValueError, 'repeats lines'):
             merge_datasets(main, load_csv(sample_csv()))
         with self.assertRaisesRegex(ValueError, 'is for 2026-09'):
@@ -50,9 +52,9 @@ class PLLineTests(unittest.TestCase):
     def test_sales_above_plan_is_favorable(self):
         self.assertEqual(compare(D(110), D(100), D(0), D(0), True)['direction'], 'Favorable')
         self.assertEqual(compare(D(110), D(100), D(0), D(0))['direction'], 'Unfavorable')
-        lines = {(r['cost_center'], r['account']): r for r in review_lines(demo_rows(), 'budget', (D(1), D(0)))}
-        self.assertEqual(lines[('SG-SAL', 'Product sales')]['direction'], 'Unfavorable')  # sales below plan
-        self.assertEqual(lines[('IN-SAL', 'Product sales')]['direction'], 'Favorable')
+        lines = {(r['cost_center'], r.get('sku'), r['account']): r for r in review_lines(demo_rows(), 'budget', (D(1), D(0)))}
+        self.assertEqual(lines[('PC-IN', 'NIM-100', 'Product sales')]['direction'], 'Unfavorable')  # sales below plan
+        self.assertEqual(lines[('PC-IN', 'AUR-100', 'Product sales')]['direction'], 'Favorable')
 
 
 class StatementTests(unittest.TestCase):

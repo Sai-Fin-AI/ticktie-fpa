@@ -119,9 +119,9 @@ class CostCentrePackTests(unittest.TestCase):
     def test_excel_has_dimension_columns_and_rollup_sheets(self):
         book = load_workbook(io.BytesIO(pack_excel(lock_pack(self.pack))))
         self.assertEqual(book.sheetnames, ['Summary', 'Variances', 'Explanations', 'Open items',
-                                           'By account', 'By cost centre', 'By function'])
+                                           'By account', 'By centre', 'By function'])
         header = [c.value for c in book['Variances'][1]]
-        self.assertEqual(header[:4], ['Country', 'Cost centre', 'Account', 'Owner'])
+        self.assertEqual(header[:4], ['Country', 'Cost / profit centre', 'Account', 'Owner'])
         self.assertEqual(book['Variances'].max_row, 25)
         flags = {r[0]: r[9] for r in book['By account'].iter_rows(min_row=2, values_only=True)}
         self.assertEqual(flags['India | Distribution'], 'Offsetting movements')
@@ -145,7 +145,7 @@ class PackAppTests(unittest.TestCase):
         self.assertIn('Not locked yet', ''.join(x.value for x in app.markdown))
         self.widget(app.button, 'Lock review pack').click().run()
         self.assertFalse(app.exception)
-        self.assertTrue(any('Pack locked' in x.value and '14 material movements' in x.value for x in app.success))
+        self.assertTrue(any('Pack locked' in x.value and '16 material movements' in x.value for x in app.success))
         self.widget(app.number_input, 'Minimum variance (INR)').set_value(60000).run()
         self.assertTrue(any('changed since the pack was locked' in x.value for x in app.warning))
         self.widget(app.button, 'Lock review pack').click().run()
@@ -160,7 +160,7 @@ class PackAppTests(unittest.TestCase):
         app.sidebar.file_uploader[0].upload('account.csv', sample_csv('account').encode(), 'text/csv').run()
         self.widget(app.selectbox, 'Country').select('India').run()
         self.widget(app.selectbox, 'Compare actuals against').select('forecast').run()
-        app.sidebar.file_uploader[4].upload('explanations.json', export_notes({note_key(row, 'forecast'): note}).encode(),
+        app.sidebar.file_uploader[5].upload('explanations.json', export_notes({note_key(row, 'forecast'): note}).encode(),
                                     'application/json').run()
         self.assertFalse(app.exception)
         self.assertTrue(any('Restored 1 explanation' in x.value for x in app.success))

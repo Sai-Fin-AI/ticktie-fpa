@@ -66,8 +66,9 @@ class OutputTests(unittest.TestCase):
         self.assertEqual((self.line['negative'], self.line['scope'], self.line['actual']), (True, 'Negative balance', '-5000'))
         self.assertNotIn('negative', next(l for l in self.pack['lines'] if l['account'] == 'Travel'))
         book = load_workbook(io.BytesIO(pack_excel(self.pack)))
-        row = next(r for r in book['Variances'].iter_rows(min_row=2, values_only=True) if r[2] == 'Recruitment')
-        self.assertEqual((row[4], row[-1]), (-5000, 'Yes (negative balance)'))
+        sheet = list(book['Variances'].iter_rows(values_only=True))
+        row = dict(zip(sheet[0], next(r for r in sheet[1:] if 'Recruitment' in r)))
+        self.assertEqual((row['Actual'], row['Needs explanation']), (-5000, 'Yes (negative balance)'))
 
     def test_standard_commentary_states_it_and_ties_out(self):
         text = standard_line(self.pack, self.line)

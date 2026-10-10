@@ -109,7 +109,7 @@ class EvidenceAppTests(unittest.TestCase):
         self.assertTrue(any('Explanation saved' in x.value for x in app.success))
         self.assertIn('Unexplained amount: INR 60,000.00', self.text(app))
         next(x for x in app.radio if x.label == 'View by').set_value('Account').run()
-        frame = app.dataframe[0].value
+        frame = next(d.value for d in app.dataframe if 'Net variance INR' in d.value.columns)
         row = frame.loc[frame['Account'] == 'India | Distribution'].iloc[0]
         self.assertEqual((row['Explained INR'], row['Gross movement INR'], row['Net variance INR']), (180000, 280000, 200000))
         self.assertIn('Offsetting', row['Flags'])

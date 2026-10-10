@@ -91,7 +91,7 @@ class CostCentreTests(unittest.TestCase):
         clash = sample_cc_master_csv().replace('IN-OPS,India', 'IN-OPS,Singapore')
         with self.assertRaisesRegex(ValueError, 'disagree on country'):
             apply_master(load_csv(sample_csv()), load_cc_master(clash))
-        with self.assertRaisesRegex(ValueError, 'no cost_center column'):
+        with self.assertRaisesRegex(ValueError, 'no cost or profit centre column'):
             apply_master(load_csv(sample_csv('account')), load_cc_master(sample_cc_master_csv()))
 
     def test_spread_variance_brings_small_lines_into_scope(self):

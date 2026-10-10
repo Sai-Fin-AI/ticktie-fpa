@@ -178,10 +178,12 @@ def line_names(line):
 
 
 def short_name(line):
-    """How commentary should name one line: "India Operations Distribution", or "India Distribution"
-    when the data has no cost centres (then the line is the account total)."""
-    names = line_names(line)
-    return f"{line.get('attrs', {}).get('cc_name') or (names[0] if names else line['country'])} {line['account']}"
+    """How commentary should name one line: "India Operations Distribution", "India Commercial Nimbus Product
+    sales" (a brand line), or "India Distribution" when the data has no centres (then the line is the account total)."""
+    dims, attrs = line.get('dims', {}), line.get('attrs', {})
+    centre = attrs.get('cc_name') or dims.get('cost_center')
+    parts = [p for p in (centre, *(str(v) for k, v in dims.items() if k != 'cost_center')) if p]
+    return f"{' '.join(parts) or line['country']} {line['account']}"
 
 
 def account_total_confusion(text, line, pack):

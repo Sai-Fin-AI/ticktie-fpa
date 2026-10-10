@@ -13,7 +13,8 @@ from collections import Counter
 
 from finance import CC
 
-FIELDS = (('account', 'Account / GL code'), (CC, 'Cost centre'), ('country', 'Country / entity'))
+FIELDS = (('account', 'Account / GL code'), (CC, 'Cost / profit centre'), ('country', 'Country / entity'),
+          ('sku', 'SKU'), ('brand', 'Brand'))
 FILE_NAMES = {'gl_mapping': 'GL mapping', 'actuals': 'Actuals', 'combined': 'Data file', 'budget': 'Budget',
               'forecast': 'Forecast', 'pl': 'Sales and P&L lines'}
 PRIORITY = tuple(FILE_NAMES)  # whose spelling wins: the GL mapping is the master, then the actuals

@@ -42,7 +42,7 @@ class NumberStyleTests(unittest.TestCase):
         _, texts = slide_texts(result['pptx'])
         self.assertIn('−1,95,000', texts[0])  # net profit vs budget
         self.assertIn('3,05,00,000', texts[1])  # sales tile
-        self.assertIn('+2.40 L', texts[5])
+        self.assertIn('+2.40 L', texts[6])
         self.assertIn('INR crores', texts[3])
         # International style is back for the next caller in this thread only if asked for.
         fmt.use(None)
@@ -58,11 +58,11 @@ class AppSettingsTests(unittest.TestCase):
         self.assertIn('FY2026-27, 7 months left', caption())
         next(s for s in app.selectbox if s.label == 'Number style').set_value('Indian (lakh / crore)').run()
         self.assertEqual(next(m for m in app.metric if m.label == 'Sales · INR').value, '3,05,00,000')
-        self.assertIn('INR +4,80,000', caption())  # P&L review: profit terms, + helps profit
+        self.assertIn('INR −22,20,000', caption())  # P&L review: profit terms; Aurora's recurring input costs weigh
         next(s for s in app.selectbox if s.label == 'Financial year starts in').set_value('January').run()
         self.assertFalse(app.exception)
         self.assertIn('FY2026, 4 months left', caption())
-        self.assertEqual([t.label for t in app.tabs][:3], ['📝 One line at a time', '📋 All lines (14, all countries)',
+        self.assertEqual([t.label for t in app.tabs][:3], ['📝 One line at a time', '📋 All lines (16, all countries)',
                                                          '📤 Excel round-trip'])
 
 
@@ -73,8 +73,8 @@ class FullYearTests(unittest.TestCase):
         # A P&L review signs the outlook in profit terms: the one-off overspend costs profit, the recurring saving adds to it.
         self.assertEqual(outlook['terms'], 'profit')
         self.assertEqual({k: D(outlook[k]) for k in ('one_off', 'recurring_month', 'recurring_fy', 'timing', 'fy_effect')},
-                         {'one_off': D(-240000), 'recurring_month': D(90000), 'recurring_fy': D(720000),
-                          'timing': D(150000), 'fy_effect': D(480000)})
+                         {'one_off': D(-540000), 'recurring_month': D(-210000), 'recurring_fy': D(-1680000),
+                          'timing': D(150000), 'fy_effect': D(-2220000)})
 
     def test_expense_review_keeps_cost_terms(self):
         rows = demo_rows()
@@ -93,16 +93,16 @@ class FullYearTests(unittest.TestCase):
     def test_full_year_in_deck_excel_and_checker(self):
         pack = lock_pack(demo_pack())
         _, texts = slide_texts(make_deck(pack, None)['pptx'])
-        outlook_slide = texts[8]
+        outlook_slide = texts[9]
         self.assertIn('FULL-YEAR VIEW · FY2026-27 · 7 MONTHS LEFT', outlook_slide)
-        self.assertIn('+480,000', outlook_slide)
-        self.assertIn('Confirmed items add INR 480,000 to FY2026-27 profit', outlook_slide)
+        self.assertIn('−2,220,000', outlook_slide)
+        self.assertIn('Confirmed items take INR 2,220,000 off FY2026-27 profit', outlook_slide)
         self.assertIn('+ = helps profit (favorable)', outlook_slide)
         summary = load_workbook(io.BytesIO(pack_excel(pack)))['Summary']
         values = {row[0]: row[1] for row in summary.iter_rows(values_only=True)}
-        self.assertEqual(values['Full-year view: effect of confirmed explanations'], 480000)
+        self.assertEqual(values['Full-year view: effect of confirmed explanations'], -2220000)
         self.assertIn('P&L', load_workbook(io.BytesIO(pack_excel(pack))).sheetnames)
-        self.assertEqual(misattributed_figures('Recurring items add INR 720,000 for the full year.', pack), [])
+        self.assertEqual(misattributed_figures('Recurring items take INR 1,680,000 off the full year.', pack), [])
 
 
 class LineNamingTests(unittest.TestCase):
@@ -143,10 +143,11 @@ class LineNamingTests(unittest.TestCase):
 
     def test_reason_column_on_largest_movements(self):
         _, texts = slide_texts(make_deck(self.pack, None)['pptx'])
-        self.assertIn('REASON GIVEN', texts[4])
-        self.assertIn('Urgent air freight for festive-season launch stock', texts[4])
-        self.assertIn('India Operations Distribution\nIndia · IN-OPS · Arjun Mehta', texts[4])
-        self.assertIn('Pending from owner', texts[4])
+        self.assertIn('REASON GIVEN', texts[5])
+        self.assertIn('Urgent air freight for festive-season launch stock', texts[5])
+        self.assertIn('India Operations Distribution\nIndia · IN-OPS · Arjun Mehta', texts[5])
+        self.assertIn('India Commercial Nimbus Product sales\nIndia · PC-IN · Nimbus · Rohan Iyer', texts[5])
+        self.assertIn('Pending from owner', texts[5])
 
 
 class BulkNotesTests(unittest.TestCase):

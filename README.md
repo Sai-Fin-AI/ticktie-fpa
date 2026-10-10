@@ -22,7 +22,10 @@ During monthly reporting, FP&A teams reconcile actuals against budget or the lat
 - **Variance vs budget or forecast**, ranked by size, filterable by country.
 - **Full P&L, sales to net profit.** Add an optional *Sales and other P&L lines* file next to the expense file (sales, cost of sales, depreciation, interest, tax). Each account sits on a P&L line, read from a `pl_line` column or from the account name ("Product sales" → Sales, "Cost of goods sold" → Cost of sales). The statement shows Gross margin, EBITDA, EBIT, Profit before tax and Net profit, with gross, EBITDA and net margins. **Sign logic flips for sales**: sales above plan is favorable, costs above plan unfavorable, and every line shows its *profit impact* (+ helps profit). Without a sales file it stays an expense review, exactly as before.
 - **Waterfall for any measure.** A dropdown walks budget to actual for EBITDA, Net profit, Gross margin, Sales or Costs, account by account; the CFO deck uses the same choice.
-- **Cost centres and any extra dimension.** Files can carry a `cost_center` column, cost centre details (name, function, owner) and extra columns such as project or region. **Analyse by** chooses the level; removing a level adds its rows up. The demo's 24 cost centre lines reconcile exactly to the 16-row account file.
+- **Cost and profit centres, and any extra dimension.** Costs post to cost centres; sales and cost of sales post to profit centres. Both are responsibility centres with an owner, so one **Cost / profit centre** level carries either (a `profit_center` column is read into it), and owners, heatmap, roll-ups and query lists work for sales too. Files can also carry centre details (name, function, owner) and extra columns such as project or region. **Analyse by** chooses the level; removing a level adds its rows up. The demo's 24 cost centre lines reconcile exactly to the 16-row account file.
+- **Files with different levels.** The expense file can be by cost centre while the sales file is by profit centre and SKU: each line keeps its own levels. Product columns may be blank on lines without a product (tax, corporate costs).
+- **Product hierarchy: SKU → brand → category.** Sales and cost of sales may come by SKU, by brand only, or by category. **Sales and cost of sales by** picks the review level (default brand), with the SKUs shown inside each brand line, the way GL codes sit inside an account. An optional **product master** (sku, brand, category, name) places SKU-level data in its brands; an unknown SKU stops the file and the app offers the master back with the new SKUs highlighted. A SKU in two brands, or a brand in two categories, stops the file.
+- **Sales and gross margin by brand.** Sales, cost of sales, gross margin and GM % per brand, actual vs plan, on screen, as an Excel sheet and as a deck slide. Demo story: India's sales look calm (+300k) but Nimbus lost 360k to a retailer delisting while Aurora and Breeze grew, and Aurora's input costs rose 300k; the offsets view shows the 720k hidden inside the India sales total.
 - **Cost centre master (optional).** Unknown cost centres and contradicting details stop the file. Cost centres with no data are listed as a completeness check.
 - **Data checks (rules, no AI).** Before any figure is calculated: extra spaces are cleaned automatically; the same code spelled differently across or within files (upper/lower case, leading zeros, separators: budget "00510100" vs actuals 510100) is offered as a match the reviewer must tick, so nothing is merged silently; codes Excel already corrupted (5.1E+11) stop the file. Every check and decision is logged in the fingerprinted pack (Data checks sheet).
 - **GL mapping (optional).** Ledgers that post to many GL codes per account (Travel = airfare, hotels, local conveyance) roll up through a mapping file. The analysis runs on accounts, and the GL codes stay visible: a GL codes view and a drill-down in every line being explained. A GL code missing from the mapping stops the file, and the app offers the mapping back as Excel with the new codes highlighted. Credit GL codes (recharges, recoveries) may be negative. The demo itself is GL-level data: 28 GL codes rolling up into 11 accounts.
@@ -90,7 +93,7 @@ flowchart LR
 | `gl_panel.py` | GL mapping workbook (master export with new codes flagged) and the GL code tables |
 | `fmt.py` | Number style (international or Indian lakh/crore) for screen, commentary and deck |
 | `charts.py` | On-screen waterfall (Altair) |
-| `tests/` | 106 tests: engine, data loading and column mapping, cost centres and roll-ups, evidence, review pack, agents, checker, provider connection and UI. No AI or network needed. |
+| `tests/` | 154 tests: engine, data loading and column mapping, cost centres and roll-ups, evidence, review pack, agents, checker, provider connection and UI. No AI or network needed. |
 
 ## Run it locally
 
@@ -145,7 +148,9 @@ Standard columns (combined file or after mapping):
 - Amounts are numbers with at most 2 decimals; thousands separators (1,20,000 or 120,000) are accepted, currency symbols are not
 - Every cell must be filled, and each month/country/cost centre/extra columns/account/currency combination must be unique
 
-**Cost centre master** (optional): `cost_center` plus any of `country`, `cc_name`, `function`, `owner`. Every cost centre in the data must be listed. If the data and the master disagree, the file is stopped rather than guessed.
+**Cost / profit centre master** (optional): `cost_center` (or `profit_center`) plus any of `country`, `cc_name`, `function`, `owner`. List cost centres and profit centres together. Every centre in the data must be listed.
+
+**Product master** (optional, CSV or Excel): `sku` plus `brand` and/or `category`, optional `sku_name`. Each SKU sits in one brand, each brand in one category. If the data and the master disagree, the file is stopped rather than guessed.
 
 **GL mapping** (optional, CSV or Excel): `gl_code` and `account` (the reporting account it rolls up to), plus optional `gl_name` and `pl_line`. With a mapping, the data's account column holds GL codes. Every GL code must be mapped; a value that already is a reporting account (for example a budget kept at account level) is kept as it is. All GL codes of an account sit on one P&L line.
 

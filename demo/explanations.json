@@ -5,6 +5,44 @@
       "key": [
         "2026-08",
         "India",
+        "cost_center=PC-IN",
+        "brand=Nimbus",
+        "Product sales",
+        "INR",
+        "3140000",
+        "3500000",
+        "budget"
+      ],
+      "reason": "A key retailer delisted Nimbus Soap for three weeks during its range reset; listings returned on 25 August.",
+      "reference": "Fictional retailer range-review letter RR-0826",
+      "amount": "300000",
+      "status": "Confirmed by reviewer",
+      "timing": "One-off",
+      "action": "Agree a promotional plan with the retailer to recover the lost weeks."
+    },
+    {
+      "key": [
+        "2026-08",
+        "India",
+        "cost_center=PC-IN",
+        "brand=Aurora",
+        "Cost of goods sold",
+        "INR",
+        "2550000",
+        "2250000",
+        "budget"
+      ],
+      "reason": "Resin and fragrance input costs rose 12% from July under the new supplier contract.",
+      "reference": "Fictional supplier price notice SP-0701",
+      "amount": "300000",
+      "status": "Confirmed by reviewer",
+      "timing": "Recurring",
+      "action": "Review Aurora pricing in the September reforecast."
+    },
+    {
+      "key": [
+        "2026-08",
+        "India",
         "cost_center=IN-OPS",
         "Distribution",
         "INR",

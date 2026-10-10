@@ -2,7 +2,7 @@
   "model": "Ollama (this computer) · qwen3:8b",
   "recorded_on": "2026-10-10",
   "responses": {
-    "interview:0d91a241de317a5b20d26fa61755810c9122d777d3bb9321589e33a06ee70c7d": {
+    "interview:31ed97cdd6fac2a3aff59c6fb08daf168fcbc99da8c8955b663df7728bff2f4a": {
       "reviews": [
         {
           "line_id": "L01",
@@ -20,115 +20,151 @@
           "question": ""
         },
         {
+          "line_id": "L04",
+          "quality": "specific",
+          "question": ""
+        },
+        {
           "line_id": "L05",
           "quality": "specific",
           "question": ""
         },
         {
           "line_id": "L07",
+          "quality": "specific",
+          "question": ""
+        },
+        {
+          "line_id": "L09",
           "quality": "vague",
           "question": "Which carrier rates increased and by how much?"
         },
         {
-          "line_id": "L08",
+          "line_id": "L10",
           "quality": "vague",
-          "question": "What caused the higher costs?"
+          "question": "What caused the higher employee costs?"
         },
         {
-          "line_id": "L14",
+          "line_id": "L16",
           "quality": "specific",
           "question": ""
         }
       ]
     },
-    "commentary:0d91a241de317a5b20d26fa61755810c9122d777d3bb9321589e33a06ee70c7d": {
+    "commentary:31ed97cdd6fac2a3aff59c6fb08daf168fcbc99da8c8955b663df7728bff2f4a": {
       "executive_summary": [
-        "Net profit was INR 195,000.00 below budget, driven by unfavorable variances in India and Australia, partially offset by favorable variances in Singapore and Australia.",
-        "The largest explained drivers include India's Distribution costs (INR 240,000.00 unfavorable) and Australia's Employee costs (INR 150,000.00 favorable).",
-        "Unexplained variances total INR 515,000.00, with India's Distribution and Australia's Distribution being key areas requiring further review."
+        "The P&L shows an overall unfavorable performance, with EBITDA, EBIT, profit before tax, and net profit all below plan. The primary drivers of this underperformance are the unexplained variances in several cost centers, particularly in India and Australia.",
+        "The most significant unexplained variance is in Australia Operations Distribution (L09), where INR 70,000.00 is unexplained due to conflicting explanations from logistics and commercial teams. This requires immediate resolution.",
+        "India Sales Employee costs (L10) also show an unexplained variance of INR 60,000.00, which remains unresolved and needs further investigation.",
+        "Other notable variances include the unexplained INR 70,000.00 in India Corporate Consulting (L07) and the unexplained INR 60,000.00 in India Sales Employee costs (L10). These should be prioritized for review and resolution."
       ],
       "lines": [
         {
           "line_id": "L01",
-          "commentary": "India Operations Distribution was INR 240,000.00 above budget, with INR 180,000.00 explained due to urgent air freight for festive-season stock after a supplier delay."
+          "commentary": "The favorable variance in India Sales (L01) is due to a delay in supplier delivery, which has been confirmed. A lead-time buffer should be agreed with the supplier to prevent similar issues in the future."
         },
         {
-          "line_id": "L02",
-          "commentary": "Australia Sales Employee costs were INR 150,000.00 below budget, fully explained by two vacant roles in the Sydney sales team."
-        },
-        {
-          "line_id": "L03",
-          "commentary": "Singapore Operations Employee costs were INR 90,000.00 below budget, fully explained by two warehouse supervisors moving to the Singapore Sales cost centre."
+          "line_id": "L04",
+          "commentary": "The favorable variance in Australia Sales Employee costs (L04) is due to two vacant roles in the Sydney sales team. The saving is expected to reverse once the roles are filled, so the budget should be adjusted accordingly."
         },
         {
           "line_id": "L05",
-          "commentary": "India Corporate Consulting was INR 75,000.00 above budget, fully explained by unbudgeted tax advisory support for the GST audit."
+          "commentary": "The favorable variance in Singapore Operations Employee costs (L05) is due to a transfer of two warehouse supervisors to the Sales cost center. The budget should be reallocated to reflect this change in the reforecast."
         },
         {
           "line_id": "L07",
-          "commentary": "Australia Operations Distribution was INR 70,000.00 above budget, with no confirmed explanation."
+          "commentary": "The unfavorable variance in India Corporate Consulting (L07) is due to an unbudgeted tax advisory support for the GST audit. This should be added to next year’s budget to avoid similar surprises."
         },
         {
-          "line_id": "L08",
-          "commentary": "India Sales Employee costs were INR 60,000.00 above budget, with no confirmed explanation."
+          "line_id": "L09",
+          "commentary": "The unfavorable variance in Australia Operations Distribution (L09) remains unexplained, with conflicting explanations from logistics and commercial teams. This requires urgent resolution to understand the true cause and prevent future overruns."
         },
         {
-          "line_id": "L14",
-          "commentary": "India Corporate Recruitment was INR 15,000.00 below budget, fully explained by a refund of the July placement fee after a candidate withdrew."
+          "line_id": "L10",
+          "commentary": "The unfavorable variance in India Sales Employee costs (L10) is unexplained and requires further investigation. The line is below the threshold but is part of a material account total, so it should be prioritized for resolution."
+        },
+        {
+          "line_id": "L16",
+          "commentary": "The favorable variance in India Corporate Recruitment (L16) is due to a credit note for a refunded placement fee. The role is still open, so the search should be restarted in September."
         }
       ]
     },
-    "commentary-retry:0d91a241de317a5b20d26fa61755810c9122d777d3bb9321589e33a06ee70c7d": {
+    "commentary-retry:31ed97cdd6fac2a3aff59c6fb08daf168fcbc99da8c8955b663df7728bff2f4a": {
       "executive_summary": [
-        "Net profit was INR 195,000.00 below budget, driven by unfavorable variances in India and Australia, partially offset by favorable variances in Singapore and India.",
-        "The largest explained drivers were India's Distribution costs (INR 180,000.00 unfavorable) and Australia's Employee costs (INR 150,000.00 favorable).",
-        "Unexplained variances total INR 515,000.00, with the largest offset being India's Distribution line, which hides INR 80,000.00."
+        "The EBITDA margin is 13.9% (−1.1 pts) and EBIT is INR 3,325,000.00 (−INR 265,000.00) below plan.",
+        "Unfavorable variances include: Australia Distribution (INR 70,000.00 above budget), India Sales Employee costs (INR 60,000.00 above budget), and India Corporate Consulting (INR 75,000.00 above budget).",
+        "Favorable variances include: Singapore Operations Employee costs (INR 90,000.00 below budget), India Corporate Recruitment (INR 15,000.00 below budget), and India Corporate Tax Advisory (INR 75,000.00 above budget).",
+        "Unexplained variances include: Australia Distribution (INR 70,000.00), India Sales Employee costs (INR 60,000.00), and India Corporate Consulting (INR 75,000.00)."
       ],
       "lines": [
         {
           "line_id": "L01",
-          "commentary": "India Operations Distribution was INR 240,000.00 above budget, with INR 180,000.00 explained by urgent air freight for festive-season stock. The remaining INR 60,000.00 remains unexplained."
+          "commentary": "The variance is labeled as favorable, but the actual movement is unfavorable. The unexplained INR 60,000.00 must be addressed."
         },
         {
           "line_id": "L02",
-          "commentary": "Australia Sales Employee costs were INR 150,000.00 below budget, fully explained by two vacant roles in the Sydney sales team."
+          "commentary": "The variance is labeled as favorable, but the actual movement is unfavorable. The unexplained INR 50,000.00 must be addressed."
         },
         {
           "line_id": "L03",
-          "commentary": "Singapore Operations Employee costs were INR 90,000.00 below budget, fully explained by two warehouse supervisors moving to the Singapore Sales cost centre."
+          "commentary": "The variance is labeled as favorable, but the actual movement is unfavorable. The unexplained INR 40,000.00 must be addressed."
+        },
+        {
+          "line_id": "L04",
+          "commentary": "The variance is labeled as favorable, but the actual movement is unfavorable. The unexplained INR 60,000.00 must be addressed."
         },
         {
           "line_id": "L05",
-          "commentary": "India Corporate Consulting was INR 75,000.00 above budget, fully explained by unbudgeted tax advisory support for the GST audit."
+          "commentary": "The variance is labeled as favorable, but the actual movement is unfavorable. The unexplained INR 0.00 is fully explained."
         },
         {
           "line_id": "L07",
-          "commentary": "Australia Operations Distribution was INR 70,000.00 above budget, with no confirmed explanation. Logistics and commercial teams provided conflicting reasons for the variance."
+          "commentary": "The variance is labeled as unfavorable, but the actual movement is unexplained. The explanation is not confirmed."
         },
         {
-          "line_id": "L08",
-          "commentary": "India Sales Employee costs were INR 60,000.00 above budget, with no confirmed explanation. Higher costs were cited, but no resolution has been reached."
+          "line_id": "L09",
+          "commentary": "The variance is labeled as unfavorable, but the actual movement is unexplained. The unexplained INR 70,000.00 must be addressed."
         },
         {
-          "line_id": "L14",
-          "commentary": "India Corporate Recruitment was INR 15,000.00 below budget, fully explained by an agency credit note for a withdrawn candidate. The actual is a negative balance of INR −5,000.00."
+          "line_id": "L10",
+          "commentary": "The variance is labeled as unfavorable, but the actual movement is unexplained. The explanation is unconfirmed."
+        },
+        {
+          "line_id": "L16",
+          "commentary": "The variance is labeled as favorable, but the actual movement is unfavorable. The unexplained INR 0.00 is fully explained."
         }
       ]
     },
-    "deck:0d91a241de317a5b20d26fa61755810c9122d777d3bb9321589e33a06ee70c7d": {
+    "deck:31ed97cdd6fac2a3aff59c6fb08daf168fcbc99da8c8955b663df7728bff2f4a": {
       "headlines": {
         "summary": "Net profit INR 195,000 below budget (unfavorable), 7.9% variance.",
-        "bridge": "EBITDA INR 265,000 below plan (unfavorable), driven by cost of goods sold.",
-        "top": "India | Distribution: INR 240,000 unfavorable; Australia | Employee costs: INR 150,000 favorable.",
-        "heatmap": "India | Distribution and Australia | Employee costs show largest variances.",
-        "offsets": "India | Distribution: net INR 200,000, gross INR 280,000; Singapore | Employee costs: net INR 0, gross INR 180,000.",
+        "bridge": "Product sales adds INR 500,000 to EBITDA (favorable); Cost of goods sold takes INR 400,000 off EBITDA (unfavorable).",
+        "top": "India | PC-IN India Commercial | Nimbus | Product sales: INR 360,000 unfavorable.",
+        "heatmap": "India | PC-IN India Commercial | Aurora | Cost of goods sold: INR 300,000 unfavorable; India | IN-OPS India Operations | Distribution: INR 240,000 unfavorable.",
+        "offsets": "India | Product sales: net INR 300,000, gross INR 1,020,000; India | Cost of goods sold: net INR 250,000, gross INR 450,000.",
         "owners": "Priya Nair: 3 line(s), INR 170,000 open; Arjun Mehta: 2 line(s), INR 80,000 open.",
-        "outlook": "Recurring items INR 720,000 above plan; unexplained variance not projected."
+        "outlook": "Recurring items for full year INR 1,680,000 below plan; unexplained variance not projected."
       },
       "summary": [
         "Net profit INR 195,000 below budget (unfavorable), 7.9% variance.",
-        "EBITDA INR 265,000 below plan (unfavorable), driven by cost of goods sold.",
-        "India | Distribution shows largest unfavorable variance of INR 240,000."
+        "EBITDA INR 265,000 below plan (unfavorable), 5.9% variance.",
+        "Unexplained variance INR 575,000, 23.4% of total variance."
+      ]
+    },
+    "deck-retry:31ed97cdd6fac2a3aff59c6fb08daf168fcbc99da8c8955b663df7728bff2f4a": {
+      "headlines": {
+        "summary": "Net profit INR 195,000 below budget (unfavorable), 7.9% variance",
+        "bridge": "Product sales adds INR 500,000 to EBITDA (favorable); Cost of goods sold takes INR 400,000 off EBITDA (unfavorable)",
+        "top": "India | PC-IN India Commercial | Nimbus | Product sales: INR 360,000 unfavorable",
+        "heatmap": "India | PC-IN India Commercial | Aurora | Cost of goods sold: INR 300,000 unfavorable",
+        "offsets": "India | Product sales: net INR 300,000, gross INR 1,020,000",
+        "owners": "Priya Nair: 3 line(s), INR 170,000 open; Arjun Mehta: 2 line(s), INR 80,000 open",
+        "outlook": "Recurring items INR 1,680,000 below plan for full year"
+      },
+      "summary": [
+        "Net profit INR 195,000 below budget (unfavorable), 7.9% variance",
+        "EBITDA INR 265,000 below plan (unfavorable), 5.9% variance",
+        "Unexplained variance INR 575,000, 23.4% of total variance"
       ]
     }
   }
