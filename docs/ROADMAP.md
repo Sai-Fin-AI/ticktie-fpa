@@ -124,7 +124,7 @@ Decisions: explanations at cost centre × account and rolled up; the user choose
 
 ### Phase 5: Host & showcase (10 October 2026)
 - ✅ Hosted mode: the online demo hides the local-model option and reminds visitors to upload synthetic data only
-- 🔜 Deploy to Streamlit Community Cloud from the GitHub repo in demo mode (recorded local-model responses; Ollama can't run there)
+- ✅ Deployed to Streamlit Community Cloud (https://ticktie-fpa.streamlit.app) in demo mode, verified logged out on 10 October 2026: same figures and pack fingerprint as a local run (recorded local-model responses; Ollama can't run there)
 - ⬜ 60–90 second demo video/GIF: upload → explain → follow-up question → download deck
 - ✅ Case-study write-up (`docs/CASE_STUDY.md`): problem, design choices, controls, eval results, what you'd do next
 - ✅ Resume bullets + LinkedIn post (claim only what is built and measured), kept out of the repo
@@ -150,7 +150,7 @@ Decisions: explanations at cost centre × account and rolled up; the user choose
 | Testing | unittest (current) / pytest; Streamlit AppTest | ✅ |
 | Lint/format | ruff | ⬜ |
 | CI | GitHub Actions | ✅ |
-| Deployment | Streamlit Community Cloud (free) | 🔜 |
+| Deployment | Streamlit Community Cloud (free) | ✅ |
 | Demo recording | ScreenToGif / OBS / Loom | ⬜ |
 | Diagrams | Mermaid in README (renders natively on GitHub) | ✅ |
 
@@ -196,10 +196,10 @@ Be ready to explain each of these in your own words:
 
 ## 7. Publishing checklist
 
-- [ ] Confirm repo visibility is **Public** (GitHub → Settings → General → Danger Zone → Change visibility)
+- [x] Confirm repo visibility is **Public** (GitHub → Settings → General → Danger Zone → Change visibility)
 - [ ] No real or employer data anywhere in history; `.venv`, `.env`, secrets ignored
-- [ ] LICENSE, CI badge, screenshot and live demo link in README
+- [x] LICENSE, CI badge, screenshot and live demo link in README
 - [ ] Description, website link and topics set on the repo page
 - [ ] Pinned on GitHub profile; profile README mentions it
-- [ ] Live app reachable while logged out; demo mode works without an API key
+- [x] Live app reachable while logged out; demo mode works without an API key
 - [ ] Resume line links to the repo and the live demo
