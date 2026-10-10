@@ -1,6 +1,6 @@
 # TickTie: FP&A variance review a CFO can sign off
 
-[![tests](https://github.com/casaikiran93-maker/ticktie-fpa/actions/workflows/tests.yml/badge.svg)](https://github.com/casaikiran93-maker/ticktie-fpa/actions/workflows/tests.yml)
+[![tests](https://github.com/Sai-Fin-AI/ticktie-fpa/actions/workflows/tests.yml/badge.svg)](https://github.com/Sai-Fin-AI/ticktie-fpa/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python 3.12 | 3.13](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
 [![Live demo](https://img.shields.io/badge/live%20demo-streamlit-ff4b4b)](https://ticktie-fpa.streamlit.app)
