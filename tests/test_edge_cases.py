@@ -1,5 +1,7 @@
 """Edge cases found by the synthetic stress run (random datasets pushed through the whole pipeline)."""
 import io
+import os
+import sys
 import unittest
 from decimal import Decimal as D
 from pathlib import Path
@@ -9,12 +11,14 @@ from streamlit.testing.v1 import AppTest
 
 import validate
 from agents.deck import _pts, make_deck
+from checker import wrong_claims
 from agents.writer import to_markdown
 from finance import aggregate, load_csv, merge_datasets, sample_pl_csv, statement
 from ingest import guess_roles, normalize_month, separate_csv
 from pack import build_pack, lock_pack
 
 APP = Path(__file__).resolve().parents[1] / 'app.py'
+sys.path.insert(0, str(APP.parent / 'scripts'))  # record_demo
 BRANDS = 'month,country,profit_center,brand,account,currency,actual,budget,forecast\n'
 
 
@@ -37,6 +41,21 @@ class SalesWithoutCostsTests(unittest.TestCase):
         app.sidebar.file_uploader[0].upload('sales.csv', sample_pl_csv().encode(), 'text/csv').run()
         self.assertFalse(app.exception)
         self.assertEqual({m.label: m.value for m in app.metric}['EBITDA · INR'], '16,600,000')
+
+
+class HostedTests(unittest.TestCase):
+    def test_online_demo_hides_the_local_model_and_warns_about_data(self):
+        os.environ['FPA_HOSTED'] = '1'
+        try:
+            app = AppTest.from_file(str(APP), default_timeout=60).run()
+        finally:
+            del os.environ['FPA_HOSTED']
+        self.assertFalse(app.exception)
+        provider = next(s for s in app.sidebar.selectbox if s.label == 'AI provider')
+        self.assertNotIn('Ollama (this computer)', provider.options)
+        self.assertTrue(any('never company data' in c.value for c in app.caption))
+        local = AppTest.from_file(str(APP), default_timeout=60).run()
+        self.assertIn('Ollama (this computer)', next(s for s in local.sidebar.selectbox if s.label == 'AI provider').options)
 
 
 class InputShapeTests(unittest.TestCase):
@@ -71,6 +90,31 @@ class InputShapeTests(unittest.TestCase):
         self.assertEqual([(v['value'], v['difference']) for v in suggestions[0]['from']],
                          [('0510 100', 'separators (- . _ / or spaces) and leading zeros'),
                           ('510100.0', 'a trailing .0 (Excel number format)')])
+
+
+class ClaimTests(unittest.TestCase):
+    """Real figures placed in the wrong list: found in the recorded demo commentary, now rejected."""
+
+    def setUp(self):
+        from record_demo import demo_pack
+        self.pack = lock_pack(demo_pack())
+
+    def test_a_line_must_fit_its_list(self):
+        favorable = ('Favorable variances include: Singapore Operations Employee costs (INR 90,000.00 below budget) and '
+                     'India Corporate Tax Advisory (INR 75,000.00 above budget).')
+        unexplained = 'Unexplained variances include: India Sales Employee costs (INR 60,000.00) and India Corporate Consulting (INR 75,000.00).'
+        self.assertEqual(wrong_claims(favorable, self.pack), ['lists India Corporate as favorable, but it is unfavorable'])
+        self.assertEqual(wrong_claims(unexplained, self.pack), ['lists India Corporate / Consulting as unexplained, but it is fully explained'])
+        self.assertEqual(wrong_claims('Unfavorable variances include: India Corporate Consulting (INR 75,000.00 above budget).', self.pack), [])
+        self.assertEqual(wrong_claims('India Operations Distribution (INR 240,000.00 below budget) was freight.', self.pack),
+                         ['says India Operations / Distribution is below budget, but it is the other way'])
+
+    def test_recorded_demo_summary_is_true_and_opens_with_the_result(self):
+        from agents.writer import write_commentary
+        from llm import Client
+        bullets = write_commentary(self.pack, Client('Demo (recorded responses)'))['reply']['executive_summary']
+        self.assertTrue(bullets[0].startswith('Net profit was INR 195,000.00 below budget'))
+        self.assertFalse(any('Tax Advisory' in b or b.startswith('Unexplained') for b in bullets))
 
 
 class OutputTests(unittest.TestCase):

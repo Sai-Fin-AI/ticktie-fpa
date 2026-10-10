@@ -217,7 +217,8 @@ def commentary_html(pack, reply, issues, model, replaced=0):
     written = {e['line_id']: e['commentary'] for e in reply['lines']}
     net_label, net_colour = _direction(t['direction'])
     material_abs = sum(abs(Decimal(l['variance'])) for l in pack['lines'] if l['material'])
-    explained_share = int(Decimal(s['explained']) / material_abs * 100) if material_abs else 0
+    # rounded the same way as the app's KPI and the deck tile, so all three show the same share
+    explained_share = f"{Decimal(s['explained']) / material_abs * 100:.0f}" if material_abs else '0'
     out = [f'<div style="{FONT};color:#101828;background:#f9fafb;padding:20px;border-radius:12px;max-width:980px">']
     if issues:
         out.append(f'<div style="padding:12px 14px;border-radius:10px;background:{TINT[RED]};color:{RED};font-weight:600;margin-bottom:14px">'

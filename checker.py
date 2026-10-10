@@ -270,6 +270,60 @@ def misattributed_figures(text, pack, extra=()):
             problems.append((match.group(0).strip(), names))
     return [f'"{p}" does not belong to {" / ".join(names)}' for p, names in problems]
 
+def _heading_claim(heading):
+    """What a list heading says about every item under it ("Favorable variances include: ...")."""
+    heading = heading.lower()
+    if re.search(r'unexplained|\bopen\b|outstanding|pending|not yet explained', heading):
+        return 'unexplained'
+    if re.search(r'unfavou?rable|adverse', heading):
+        return 'Unfavorable'
+    if re.search(r'favou?rable', heading):
+        return 'Favorable'
+    return None
+
+
+def wrong_claims(text, pack):
+    """A line listed under a heading must fit it, and "above/below <basis>" after an amount must match the line.
+
+    Catches a real figure put in the wrong list: "Favorable variances include ... Consulting (INR 75,000 above
+    budget)" when the overspend is unfavorable, or "Unexplained variances include ..." for a fully explained line.
+    Each amount is tied to the lines whose name comes just before it and that carry that amount.
+    """
+    kinds = entity_names(pack)
+    head, _, rest = text.partition(':')
+    claim = _heading_claim(head) if rest else None
+    offset = len(head) + 1 if rest else 0
+    groups = _name_groups(text, kinds)
+    labels = [(l, ' | '.join([l.get('label', ''), *(str(v) for v in l.get('attrs', {}).values())]).lower())
+              for l in pack['lines'] if l['material']]
+    problems = []
+    for match in NUMBER.finditer(text):
+        unit = (match.group(2) or '').lower()
+        if unit in ('%', 'percent') or unit in POINTS or match.start() < offset:
+            continue
+        before = [g for g in groups if g[1] <= match.start()]
+        names = [n for n in (before[-1][2] if before else []) if kinds[n] in ('structure', 'dim')]
+        if not names:
+            continue
+        raw = match.group(1)
+        value, decimals = _dec(raw), (len(raw.split('.')[1]) if '.' in raw else 0)
+        scale = UNITS.get(unit, Decimal(1))
+        lines = [l for l, label in labels if all(n.lower() in label for n in names)
+                 and _matches(value, decimals, {abs(_dec(l[k])) for k in ('variance', 'explained', 'unexplained', 'actual', 'baseline')
+                                                if l[k] is not None}, scale)]
+        if not lines:
+            continue  # not a line figure: unsupported_figures and misattributed_figures judge it
+        name = ' / '.join(names)
+        if claim == 'unexplained' and not any(_dec(l['unexplained']) > 0 for l in lines):
+            problems.append(f'lists {name} as unexplained, but it is fully explained')
+        elif claim in ('Favorable', 'Unfavorable') and not any(l['direction'] == claim for l in lines):
+            problems.append(f'lists {name} as {claim.lower()}, but it is {lines[0]["direction"].lower()}')
+        side = re.match(r'[\s.,\d]*\)?\s*(above|below)\b', text[match.end():match.end() + 12], re.I)
+        if side and not any((_dec(l['variance']) > 0) == (side.group(1).lower() == 'above') for l in lines):
+            problems.append(f'says {name} is {side.group(1).lower()} {pack["basis"]}, but it is the other way')
+    return list(dict.fromkeys(problems))
+
+
 def internal_codes(text):
     """Line IDs such as L03 are for the machine, not the CFO."""
     return re.findall(r'\bL\d{2}\b', text)

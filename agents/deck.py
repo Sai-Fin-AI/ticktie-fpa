@@ -24,7 +24,7 @@ from pptx.util import Inches, Pt
 import fmt
 from finance import MARGIN_NAMES
 from agents import full_year_facts, inr, material_lines, owner, pct_text
-from checker import allowed_figures, internal_codes, misattributed_figures, short_name, unsupported_figures
+from checker import allowed_figures, internal_codes, misattributed_figures, short_name, unsupported_figures, wrong_claims
 from llm import AIError
 from pack import bridge_choices, load_pack, open_reason, pack_bridge, pack_json
 
@@ -247,6 +247,7 @@ def derived_records(pack):
 def _problems(text, allowed, pack):
     issues = [f'"{f}" is not in the pack' for f in unsupported_figures(text, allowed)]
     issues += misattributed_figures(text, pack, derived_records(pack))
+    issues += wrong_claims(text, pack)
     issues += [f'uses the internal code {c}' for c in internal_codes(text)]
     if len(text) > 130:
         issues.append('too long for a headline')

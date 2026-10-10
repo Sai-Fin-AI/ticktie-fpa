@@ -1,5 +1,6 @@
 """Streamlit screens for the AI agents, kept apart from app.py so the finance screens stay readable."""
 import json
+import os
 from pathlib import Path
 
 import streamlit as st
@@ -15,6 +16,13 @@ from pack import import_notes
 from report_html import html_document
 
 DEMO_NOTES = Path(__file__).resolve().parent / 'demo' / 'explanations.json'
+# The online demo (Streamlit Community Cloud runs apps from /mount/src). There is no Ollama on that server, and
+# visitors are reminded to upload synthetic data only. FPA_HOSTED=1 forces hosted mode elsewhere.
+LOCAL_ONLY = ('Ollama (this computer)',)
+
+
+def hosted():
+    return os.environ.get('FPA_HOSTED') == '1' or Path(__file__).resolve().as_posix().startswith('/mount/src/')
 SECRET_NAMES = {'Groq (free tier)': 'GROQ_API_KEY', 'Google Gemini (free tier)': 'GEMINI_API_KEY', 'OpenRouter': 'OPENROUTER_API_KEY'}
 QUALITY = {'missing': '⚪ no explanation', 'vague': '🟠 vague wording', 'specific': '🟢 specific wording', None: ''}
 
@@ -36,9 +44,12 @@ def _secret(name):
 def ai_settings():
     with st.sidebar:
         st.header('AI assistant')
-        provider = st.selectbox('AI provider', list(PROVIDERS),
-                                help='Demo replays recorded answers. Ollama runs free on this computer. '
-                                     'Groq, Gemini and OpenRouter are online services with free tiers.')
+        online = hosted()
+        choices = [p for p in PROVIDERS if not (online and p in LOCAL_ONLY)]
+        provider = st.selectbox('AI provider', choices,
+                                help='Demo replays recorded answers. Groq, Gemini and OpenRouter are online services with '
+                                     'free tiers.' + (' Ollama (a free local model) is available when you run the app on '
+                                                      'your own computer.' if online else ' Ollama runs free on this computer.'))
         config, model, key = PROVIDERS[provider], None, None
         if config is None:
             st.caption('Recorded answers from a local model. They match the sample data with the demo explanations loaded.')

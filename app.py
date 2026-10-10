@@ -16,7 +16,7 @@ from pack import (MONTHS, build_pack, lock_pack, pack_json, pack_excel, pack_mar
                   rollup_views)
 from report_html import heatmap_html, pl_table_html
 from charts import bridge_chart
-from ai_panel import ai_settings, demo_notes_button, interviewer_section, reset_note_widgets, writer_section
+from ai_panel import ai_settings, demo_notes_button, hosted, interviewer_section, reset_note_widgets, writer_section
 from data_panel import load_inputs, show_reconciliation, source_uploads
 from notes_panel import excel_roundtrip, notes_table, show_bulk_errors
 import pandas as pd
@@ -207,6 +207,9 @@ if not inputs['demo']:
     st.info('Uploaded data is loaded. Review the figures and commentary before use.')
 else:
     st.info('Synthetic demo data is loaded. All sample records, cost centres and owners are fictional.')
+if hosted():
+    st.caption('🌐 Online demo: upload synthetic or public data only, never company data. Files are read in memory for '
+               'your session and are not stored. Run the app on your own computer for private data.')
 if gl_info:
     unused = len(gl_info['unused'])
     st.caption(f"🔗 GL mapping: {gl_info['gl_codes']} GL codes roll up into {gl_info['accounts']} accounts."
@@ -240,7 +243,7 @@ with hero_box:
          'Variance analysis that never invents a cause. Figures come from fixed rules; AI drafts wording only, '
          'and every AI figure is checked against the locked pack.',
          [f"📅 {rows[0]['month']}", f'⚖️ Actual vs {baseline}', f'🧭 {level_name}',
-          '🧪 Demo data' if inputs['demo'] else '📂 Uploaded data', '💱 INR', 'v0.6'])
+          '🧪 Demo data' if inputs['demo'] else '📂 Uploaded data', '💱 INR', 'v1.0'])
 in_scope = [l for l in current_pack['lines'] if l['material'] and in_view(l)]
 gap = sum(abs(Decimal(l['variance'])) for l in in_scope)
 explained = sum(Decimal(l['explained']) for l in in_scope)

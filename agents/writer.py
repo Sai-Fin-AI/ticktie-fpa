@@ -12,7 +12,7 @@ from finance import MARGIN_NAMES
 from agents import (cost_centre, coverage, full_year_facts, grouped_lines, inr, inr_balance, line_facts, material_lines, offset_sentences,
                     owner)
 from checker import (account_total_confusion, short_name, allowed_figures, check_line_text, internal_codes, misattributed_figures,
-                     unsupported_figures)
+                     unsupported_figures, wrong_claims)
 from llm import AIError
 from pack import load_pack, pack_json, open_reason
 from report_html import commentary_html
@@ -107,6 +107,7 @@ def _findings(pack, reply):
         add(('summary', i), [f'"{figure}" is not in the pack' for figure in unsupported_figures(bullet, allowed)])
         add(('summary', i), [f'uses the internal code {code}; name the country and account instead' for code in internal_codes(bullet)])
         add(('summary', i), misattributed_figures(bullet, pack))
+        add(('summary', i), wrong_claims(bullet, pack))
     for entry in reply['lines']:
         line = lines.get(entry['line_id'])
         if line is None or not line['note']:
@@ -202,6 +203,9 @@ def clean_draft(pack, reply):
             bullets.append(bullet.strip())
     if len(bullets) < 2:
         bullets = standard_summary(pack)[:max(2, 3 - len(bullets))] + bullets
+    name = pack['totals'].get('name', 'Expenses')
+    if not any(re.search(rf'\b{name}\b', b, re.I) for b in bullets):  # the summary always opens with the headline result
+        bullets = [standard_summary(pack)[0]] + bullets[:3]
     extra = found.get(('draft', None), [])
     if extra:
         notes.append({'where': 'Draft', 'action': 'Ignored', 'problems': [_plain_problem(p, labels) for p in extra], 'ai_text': ''})
