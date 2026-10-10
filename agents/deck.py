@@ -369,9 +369,29 @@ def _border(cell, sides):
 NUMERIC = re.compile(r'[+−-]?[\d,]+(\.\d+)?(%|k|m| L| Cr)?|N/A|–')
 
 
+def _wrapped(text, width, size):
+    """Estimated number of lines a cell's text wraps onto (a little generous, so tables never run long)."""
+    per_line = max(1, int((width - 0.16) / (size * 0.0066)))  # average character width, measured on rendered slides
+    return sum(max(1, -(-len(part) // per_line)) for part in str(text).split('\n'))
+
+
+def _fit(header, rows, widths, size, row_h, room):
+    """Row heights (header first) grown to fit wrapped text, and how many rows fit in `room` inches."""
+    height = lambda cells, pt: max(row_h, max(_wrapped(t, w, pt) for t, w in zip(cells, widths)) * pt * 1.25 / 72 + 0.12)
+    heights = [height(header, size - 2)]
+    for row in rows:
+        h = height(row, size)
+        if sum(heights) + h > room:
+            break
+        heights.append(h)
+    return heights, len(heights) - 1
+
+
 def _table(slide, x, y, w, header, rows, widths, row_h=0.4, size=12, fills=None, colours=None, bolds=None):
-    """Clean table: white rows, hairline rules, no vertical lines; numbers right-aligned."""
-    shape = slide.shapes.add_table(len(rows) + 1, len(header), Inches(x), Inches(y), Inches(w), Inches(row_h * (len(rows) + 1)))
+    """Clean table: white rows, hairline rules, no vertical lines; numbers right-aligned.
+    row_h: one height for every row, or a list (header first) from _fit."""
+    heights = list(row_h) if isinstance(row_h, (list, tuple)) else [row_h] * (len(rows) + 1)
+    shape = slide.shapes.add_table(len(rows) + 1, len(header), Inches(x), Inches(y), Inches(w), Inches(sum(heights)))
     table = shape.table
     table.first_row = table.horz_banding = False
     numeric = [c > 0 and bool(rows) and all(NUMERIC.fullmatch(str(r[c])) or str(r[c]) == '·' for r in rows)
@@ -379,7 +399,7 @@ def _table(slide, x, y, w, header, rows, widths, row_h=0.4, size=12, fills=None,
     for i, width in enumerate(widths):
         table.columns[i].width = Inches(width)
     for r, values in enumerate([header] + rows):
-        table.rows[r].height = Inches(row_h)
+        table.rows[r].height = Inches(heights[r])
         for c, value in enumerate(values):
             cell = table.cell(r, c)
             cell.text = str(value)
@@ -550,7 +570,7 @@ def _title_slide(deck, pack, source):
 
 
 def _pts(value):
-    value = _d(value)
+    value = round(_d(value), 1)  # -0.04 shows as 0.0, not −0.0
     return f"{'+' if value > 0 else '−' if value < 0 else ''}{abs(value):.1f} pts"
 
 
@@ -614,7 +634,12 @@ def _products_slide(deck, pack, footer):
     p = pack['products']
     name = {'sku': 'SKU', 'brand': 'Brand', 'category': 'Category'}.get(p['level'], p['level'].title())
     slide = _slide(deck, f'Sales and gross margin by {name.lower()}', products_headline(pack), footer)
-    items = p['rows'][:10]
+    # Eight rows fit the slide. With more products, keep the eight that move most (sales or margin), so the
+    # products named in the headline are always in the table; the full list is in the Excel pack.
+    moves = lambda e: abs(_d(e['sales_variance'])) + abs(_d(e['gm_variance']))
+    keep = {id(e) for e in sorted(p['rows'], key=moves, reverse=True)[:8]}
+    items = [e for e in p['rows'] if id(e) in keep]
+    more = len(p['rows']) - len(items)
     pct = lambda v: f'{abs(_d(v)):.1f}%' if v is not None else 'N/A'
     rows = [[e['label'], fmt.balance(_d(e['sales_actual'])), _signed(e['sales_variance']), pct(e['sales_pct']),
              fmt.balance(_d(e['gm_actual'])), f"{_d(e['gm_pct_actual']):.1f}%" if e['gm_pct_actual'] is not None else 'N/A',
@@ -622,12 +647,13 @@ def _products_slide(deck, pack, footer):
     basis = pack['basis'].upper()
     tone = lambda v: GREEN if _d(v) > 0 else RED if _d(v) < 0 else SLATE
     _table(slide, 0.6, 1.95, 12.13, [name.upper(), 'SALES INR', f'VS {basis}', '%', 'GROSS MARGIN INR', 'GM %', f'GM % VS {basis}'],
-           rows, [2.8, 1.8, 1.6, 1.0, 2.0, 1.2, 1.73], row_h=0.5, size=12,
+           rows, [2.8, 1.8, 1.6, 1.0, 2.0, 1.2, 1.73], row_h=0.46, size=12,
            colours=lambda r, c: (tone(items[r]['sales_variance']) if c in (2, 3) else
                                  tone(items[r]['gm_pts']) if c == 6 and items[r]['gm_pts'] is not None else None),
            bolds=lambda r, c: c in (0, 2))
-    _text(slide, 0.6, 1.95 + 0.5 * (len(rows) + 1) + 0.15, 12.13, 0.5,
-          f'Gross margin = sales minus cost of sales for that {name.lower()}. Sales: green = above plan. GM % change in '
+    _text(slide, 0.6, 1.95 + 0.46 * (len(rows) + 1) + 0.15, 12.13, 0.5,
+          (f"The {len(items)} { {'Category': 'categories', 'SKU': 'SKUs'}.get(name, name.lower() + 's')} that move most; {more} more are in the Excel pack (Margins by {name.lower()} sheet). " if more else '')
+          + f'Gross margin = sales minus cost of sales for that {name.lower()}. Sales: green = above plan. GM % change in '
           'percentage points. Lines without a product (corporate costs, tax) are outside this table. INR.', size=10, color=MUTED)
 
 
@@ -753,13 +779,15 @@ def _top_slide(deck, pack, headline, footer):
 
     rows = [[f"{short_name(l)}\n{where(l)}" + (' · ⚠ negative balance' if l.get('negative') else ''), _signed(l['variance']), _pct(l), '● ' + _status(l), _plain(l['unexplained']),
              _reason(l)] for _, l in lines]
-    _table(slide, 0.6, 1.85, 12.13, ['LINE', 'VARIANCE INR', '%', 'STATUS', 'UNEXPLAINED INR', 'REASON GIVEN'], rows,
-           [3.15, 1.35, 0.8, 1.4, 1.35, 4.08], row_h=0.56, size=11,
+    header, widths = ['LINE', 'VARIANCE INR', '%', 'STATUS', 'UNEXPLAINED INR', 'REASON GIVEN'], [3.15, 1.35, 0.8, 1.4, 1.35, 4.08]
+    heights, fits = _fit(header, rows, widths, 11, 0.56, 4.75)  # long centre names wrap: show the rows that fit
+    rows, lines = rows[:fits], lines[:fits]
+    _table(slide, 0.6, 1.85, 12.13, header, rows, widths, row_h=heights, size=11,
            colours=lambda r, c: (_dir_tone(lines[r][1]['direction']) if c == 1 else STATUS_COLOUR[_status(lines[r][1])] if c == 3
                                  else AMBER if c == 4 and rows[r][4] != '0' else MUTED if c == 4 or (c == 5 and not lines[r][1]['note'])
                                  else None),
            bolds=lambda r, c: c in (0, 1))
-    _text(slide, 0.6, 1.85 + 0.56 * (len(rows) + 1) + 0.12, 12.13, 0.25,
+    _text(slide, 0.6, 1.85 + sum(heights) + 0.12, 12.13, 0.25,
           'Reasons are as supplied by owners; the status shows whether a reviewer has confirmed them. '
           f"The {len(material_lines(pack))} lines needing explanation are all in the appendix.", size=9, color=MUTED)
 
@@ -783,6 +811,12 @@ def _heatmap_slide(deck, pack, headline, footer):
 
     rows = [[row_name(n)] + [_compact(cells[(n, a)]['variance']) if (n, a) in cells else '·' for a in accounts]
             + [_compact(nets[n])] for n in shown]
+    wide = len(accounts) > 6  # many accounts (a P&L): shorter headers in normal case so names do not break
+    first, size = (2.95, 10.5) if wide else (3.5, 11.5)
+    header = ['LINE'] + [a if wide else a.upper() for a in accounts] + ['NET']
+    widths = [first] + [round((12.13 - first - 1.15) / len(accounts), 2)] * len(accounts) + [1.15]
+    heights, fits = _fit(header, rows, widths, size, 0.4, 4.7)  # long names or headers wrap: keep the legend on the slide
+    shown, rows = shown[:fits], rows[:fits]
 
     def fill(r, c):
         if c == 0 or c > len(accounts):
@@ -805,12 +839,8 @@ def _heatmap_slide(deck, pack, headline, footer):
         line = cells.get((shown[r], accounts[c - 1])) if 0 < c <= len(accounts) else None
         return (line and line['material']) or c == len(accounts) + 1
 
-    wide = len(accounts) > 6  # many accounts (a P&L): shorter headers in normal case so names do not break
-    first = 2.95 if wide else 3.5
-    _table(slide, 0.6, 1.95, 12.13, ['LINE'] + [a if wide else a.upper() for a in accounts] + ['NET'], rows,
-           [first] + [round((12.13 - first - 1.15) / len(accounts), 2)] * len(accounts) + [1.15], row_h=0.4,
-           size=10.5 if wide else 11.5, fills=fill, colours=colour, bolds=bold)
-    legend_y = 1.95 + 0.4 * (len(rows) + 1) + 0.2
+    _table(slide, 0.6, 1.95, 12.13, header, rows, widths, row_h=heights, size=size, fills=fill, colours=colour, bolds=bold)
+    legend_y = 1.95 + sum(heights) + 0.2
     _rect(slide, 0.6, legend_y + 0.04, 0.22, 0.16, _blend(RED, 0.6))
     _rect(slide, 0.85, legend_y + 0.04, 0.22, 0.16, _blend(GREEN, 0.6))
     note = ('Unfavorable / favorable; darker = larger · bold = needs explanation · a dot means no data · INR'
@@ -832,7 +862,7 @@ def _offsets_slide(deck, pack, headline, footer):
     data.categories = [e['label'] for e in shown]
     # bar charts also draw the first series at the bottom: gross first puts net on top in each pair
     data.add_series('Gross movement', _scaled(_d(e['gross']) for e in shown))
-    data.add_series('Net movement', _scaled(abs(_d(e['net'])) for e in shown))
+    data.add_series('Net movement (size; signs in the cards)', _scaled(abs(_d(e['net'])) for e in shown))
     chart = slide.shapes.add_chart(XL_CHART_TYPE.BAR_CLUSTERED, Inches(0.5), Inches(1.95), Inches(7.3), Inches(4.85), data).chart
     chart.has_legend, chart.legend.position, chart.legend.include_in_layout = True, XL_LEGEND_POSITION.TOP, False
     chart.legend.font.size, chart.legend.font.name = Pt(11), FONT
@@ -844,6 +874,7 @@ def _offsets_slide(deck, pack, headline, footer):
     labels.font.size, labels.font.bold, labels.font.name = Pt(11), True, FONT
     labels.number_format, labels.number_format_is_linked, labels.position = _unit_format(), False, XL_LABEL_POSITION.OUTSIDE_END
     _tidy(chart, value_axis=False)
+    chart.value_axis.maximum_scale = max(_scaled(_d(e['gross']) for e in shown)) * 1.2 or None  # room for the labels
     y = 1.95
     for e in entries[:4]:
         offset = 'Offsetting movements' in e['flags']
@@ -876,6 +907,7 @@ def _owners_slide(deck, pack, headline, footer):
     labels.font.size, labels.font.bold, labels.font.name = Pt(11), True, FONT
     labels.number_format, labels.number_format_is_linked, labels.position = _unit_format(), False, XL_LABEL_POSITION.OUTSIDE_END
     _tidy(chart, value_axis=False)
+    chart.value_axis.maximum_scale = max(_scaled(v['open'] for _, v in shown)) * 1.2 or None  # room for the labels
     rows = [[name, str(v['lines']), '; '.join(f'{n} × {why.lower()}' for why, n in v['reasons'].items())] for name, v in owners]
     _table(slide, 6.45, 1.95, 6.28, ['OWNER', 'LINES', 'WHY STILL OPEN'], rows, [1.75, 0.75, 3.78], row_h=0.52, size=11,
            bolds=lambda r, c: c == 0)

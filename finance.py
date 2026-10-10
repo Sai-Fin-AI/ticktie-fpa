@@ -509,8 +509,8 @@ def merge_datasets(main, extra, name='The sales and P&L file'):
     """
     if main[0]['month'] != extra[0]['month']:
         raise ValueError(f"{name} is for {extra[0]['month']}, but the main file is for {main[0]['month']}.")
-    key = lambda r: (r['country'], *(r[d] for d in r['dims']), r['account'])
-    clash = sorted({' | '.join(key(r)) for r in extra} & {' | '.join(key(r)) for r in main})
+    key = lambda r: (r['country'], *((d, r[d]) for d in r['dims']), r['account'])
+    clash = sorted(' | '.join((k[0], *(v for _, v in k[1:-1]), k[-1])) for k in {key(r) for r in extra} & {key(r) for r in main})
     if clash:
         raise ValueError(f'{name} repeats lines that are already in the main file: ' + '; '.join(clash[:5]) + '.')
     lines_of = {r['account']: r['pl_line'] for r in main}
@@ -684,7 +684,8 @@ def statement(rows, baseline, actual_key='actual'):
                     out.append(entry('account', account, a, b, sign, name))
             profit = [profit[0] + sign * total[0], profit[1] + sign * total[1]]
         for subtotal, after, margin in SUBTOTALS:
-            if after == position and (accounts or subtotal == 'Net profit'):
+            # EBITDA and Net profit always show (the headline tiles), even when no line sits just above them
+            if after == position and (accounts or subtotal in ('EBITDA', 'Net profit')):
                 out.append(entry('subtotal', subtotal, *profit, 1))
                 if margin and sales[0] and sales[1]:
                     a, b = profit[0] / sales[0] * 100, profit[1] / sales[1] * 100

@@ -251,7 +251,7 @@ def source_note(model, replaced):
 def to_markdown(pack, reply, issues, model, replaced=0):
     basis, lines = pack['basis'], material_lines(pack)
     written = {e['line_id']: e['commentary'] for e in reply['lines']}
-    out = [f"# CFO commentary: {pack['period']} expenses vs {basis}", '']
+    out = [f"# CFO commentary: {pack['period']} {'P&L' if pack.get('kind') == 'pl' else 'expenses'} vs {basis}", '']
     if issues:
         out += ['> **FAILED NUMBER CHECK. Do not use.** ' + '; '.join(issues), '']
     out += ['## Executive summary', ''] + [f'- {b}' for b in reply['executive_summary']] + ['', '## Material movements', '']

@@ -22,18 +22,34 @@ SEPARATORS = re.compile(r'[\s\-_./]')
 SCIENTIFIC = re.compile(r'[+-]?\d+(?:[.,]\d+)?[eE][+-]?\d+')
 
 
+EXCEL_DECIMAL = re.compile(r'(\d+)\.0+')  # 510100.0: a code Excel stored as a number, then saved as text
+LEADING_ZEROS = re.compile(r'(?<!\d)0+(?=\d)')
+
+
+def _whole(value):
+    text = str(value).strip()
+    match = EXCEL_DECIMAL.fullmatch(text)
+    return match.group(1) if match else text
+
+
 def match_key(value):
-    """Spellings with the same key are the same code: ignore case, separators and leading zeros."""
-    key = SEPARATORS.sub('', str(value).upper())
-    return re.sub(r'(?<!\d)0+(?=\d)', '', key)
+    """Spellings with the same key are the same code: ignore case, separators, leading zeros and a trailing .0."""
+    return LEADING_ZEROS.sub('', SEPARATORS.sub('', _whole(value).upper()))
 
 
 def difference(a, b):
-    if a.lower() == b.lower():
-        return 'upper/lower case'
-    if SEPARATORS.sub('', a.lower()) == SEPARATORS.sub('', b.lower()):
-        return 'separators (- . _ / or spaces)'
-    return 'leading zeros'
+    """Every way two spellings of one code differ, in words."""
+    parts = []
+    if _whole(a) != a.strip() or _whole(b) != b.strip():
+        parts.append('a trailing .0 (Excel number format)')
+    a, b = _whole(a), _whole(b)
+    if re.sub(r'[^A-Za-z]', '', a) != re.sub(r'[^A-Za-z]', '', b):
+        parts.append('upper/lower case')
+    if SEPARATORS.findall(a) != SEPARATORS.findall(b):
+        parts.append('separators (- . _ / or spaces)')
+    if LEADING_ZEROS.findall(SEPARATORS.sub('', a)) != LEADING_ZEROS.findall(SEPARATORS.sub('', b)):
+        parts.append('leading zeros')
+    return ' and '.join(parts) or 'spelling'
 
 
 def _corrupted(value):

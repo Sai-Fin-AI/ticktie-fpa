@@ -13,7 +13,7 @@ from decimal import Decimal, InvalidOperation
 
 from openpyxl import Workbook, load_workbook
 
-from finance import CC, CC_ATTRS, SAMPLE_LINES, extra_name
+from finance import CC, CC_ATTRS, PRODUCT_LEVELS, SAMPLE_LINES, extra_name
 
 IGNORE, EXTRA = 'ignore', 'extra'
 ROLE_LABELS = {'month': 'Month', 'country': 'Country / entity', CC: 'Cost / profit centre', 'account': 'Account or GL code',
@@ -119,11 +119,12 @@ def check_roles(roles, kind, country=''):
 
 
 def normalize_month(value):
-    """YYYY-MM from dates, 2026-08, 2026-08-31, 08/2026, Aug-26, August 2026. Day-first dates are refused as ambiguous."""
+    """YYYY-MM from dates, 2026-08, 2026-08-31, 202608, 08/2026, Aug-26, August 2026. Day-first dates are refused as ambiguous."""
     if isinstance(value, (datetime, date)):
         return f'{value.year:04d}-{value.month:02d}'
-    text = str(value).strip()
-    for pattern, order in ((r'(\d{4})[-/.](\d{1,2})(?:[-/.]\d{1,2})?(?:[ T].*)?', 'ym'), (r'(\d{1,2})[-/.](\d{4})', 'my'),
+    text = _text(value)
+    for pattern, order in ((r'(\d{4})[-/.](\d{1,2})(?:[-/.]\d{1,2})?(?:[ T].*)?', 'ym'), (r'(20\d{2})(\d{2})', 'ym'),
+                           (r'(\d{1,2})[-/.](\d{4})', 'my'),
                            (r'([A-Za-z]{3,9})[-\s/.,\']*(\d{4}|\d{2})', 'ny'), (r'(\d{4})[-\s/.]*([A-Za-z]{3,9})', 'yn')):
         match = re.fullmatch(pattern, text)
         if not match:
@@ -219,7 +220,9 @@ def _single(kind, headers, rows, roles, name, country, currency):
     lines, attrs = {}, {}
     for line, row in enumerate(rows, 2):
         values = {extra_cols.get(k, k): v for k, v in _cells(headers, row, roles, name, line).items()}
-        needed = ['month', 'account', 'amount'] + dims + [r for r in ('country', 'currency') if r in values]
+        # product levels may be blank on a line that has none (a cost posting with no material)
+        needed = (['month', 'account', 'amount'] + [d for d in dims if d not in PRODUCT_LEVELS]
+                  + [r for r in ('country', 'currency') if r in values])
         if any(not _text(values[k]) for k in needed):
             raise ValueError(f'{name} row {line}: missing value. No values were assumed.')
         try:
