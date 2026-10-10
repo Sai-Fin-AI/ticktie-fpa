@@ -17,14 +17,15 @@ During monthly reporting, FP&A teams reconcile actuals against budget or the lat
 
 ## What it does
 
-- **Validates before it calculates.** Missing values, duplicate keys, wrong currency, negative or malformed amounts and mixed months stop the analysis. Nothing is assumed.
+- **Validates before it calculates.** Missing values, duplicate keys, wrong currency, malformed amounts and mixed months stop the analysis. Nothing is assumed.
+- **Negative balances handled, not hidden.** Credit notes, reversals and recoveries are accepted. A line that nets below zero (demo: India Recruitment at INR −5,000 after an agency credit note) is flagged ⚠ on screen, in the Excel pack, the commentary and the deck; it always needs an explanation whatever its size, and cannot be marked Recurring, so a reversal is never rolled into the full-year view. Losses and negative balances keep their minus sign in every output.
 - **Variance vs budget or forecast**, ranked by size, filterable by country.
 - **Full P&L, sales to net profit.** Add an optional *Sales and other P&L lines* file next to the expense file (sales, cost of sales, depreciation, interest, tax). Each account sits on a P&L line, read from a `pl_line` column or from the account name ("Product sales" → Sales, "Cost of goods sold" → Cost of sales). The statement shows Gross margin, EBITDA, EBIT, Profit before tax and Net profit, with gross, EBITDA and net margins. **Sign logic flips for sales**: sales above plan is favorable, costs above plan unfavorable, and every line shows its *profit impact* (+ helps profit). Without a sales file it stays an expense review, exactly as before.
 - **Waterfall for any measure.** A dropdown walks budget to actual for EBITDA, Net profit, Gross margin, Sales or Costs, account by account; the CFO deck uses the same choice.
-- **Cost centres and any extra dimension.** Files can carry a `cost_center` column, cost centre details (name, function, owner) and extra columns such as project or region. **Analyse by** chooses the level; removing a level adds its rows up. The demo's 23 cost centre lines reconcile exactly to the 15-row account file.
+- **Cost centres and any extra dimension.** Files can carry a `cost_center` column, cost centre details (name, function, owner) and extra columns such as project or region. **Analyse by** chooses the level; removing a level adds its rows up. The demo's 24 cost centre lines reconcile exactly to the 16-row account file.
 - **Cost centre master (optional).** Unknown cost centres and contradicting details stop the file. Cost centres with no data are listed as a completeness check.
 - **Data checks (rules, no AI).** Before any figure is calculated: extra spaces are cleaned automatically; the same code spelled differently across or within files (upper/lower case, leading zeros, separators: budget "00510100" vs actuals 510100) is offered as a match the reviewer must tick, so nothing is merged silently; codes Excel already corrupted (5.1E+11) stop the file. Every check and decision is logged in the fingerprinted pack (Data checks sheet).
-- **GL mapping (optional).** Ledgers that post to many GL codes per account (Travel = airfare, hotels, local conveyance) roll up through a mapping file. The analysis runs on accounts, and the GL codes stay visible: a GL codes view and a drill-down in every line being explained. A GL code missing from the mapping stops the file, and the app offers the mapping back as Excel with the new codes highlighted. Credit GL codes (recharges, recoveries) may be negative. The demo itself is GL-level data: 26 GL codes rolling up into 10 accounts.
+- **GL mapping (optional).** Ledgers that post to many GL codes per account (Travel = airfare, hotels, local conveyance) roll up through a mapping file. The analysis runs on accounts, and the GL codes stay visible: a GL codes view and a drill-down in every line being explained. A GL code missing from the mapping stops the file, and the app offers the mapping back as Excel with the new codes highlighted. Credit GL codes (recharges, recoveries) may be negative. The demo itself is GL-level data: 28 GL codes rolling up into 11 accounts.
 - **Configurable materiality.** The amount **and** percentage thresholds must both be met; zero baselines use the amount only. Cost centre lines and account totals have separate thresholds.
 - **Spread variances.** An account total that is material while no single cost centre is brings every moving line into scope, so each owner explains their share.
 - **Gross vs net.** Roll-ups by account, cost centre, function and any extra dimension show gross movement next to net and flag offsets, e.g. Singapore Employee costs: net INR 0, gross INR 180,000.
@@ -122,7 +123,7 @@ Choose a **Data source** in the sidebar:
 
 **Matching separate files:**
 - The actuals file sets the month; a full-year budget or forecast file is filtered to that month.
-- Rows are added up into lines, so transaction-level exports work. Credit notes can be negative or in brackets, but a line that nets negative stops the file.
+- Rows are added up into lines, so transaction-level exports work. Credit notes can be negative or in brackets; a line that nets negative is flagged as a negative balance.
 - An actual with no budget line is **unbudgeted (zero budget)**, and a budget with no actuals is **zero actual**. Both are listed, never hidden.
 - If one file lacks a level (e.g. budget by GL only), the files are matched without it, and the app says so.
 - **Data reconciliation** shows each file's rows, lines, ignored months and total against the totals used in the analysis.
@@ -151,7 +152,8 @@ Standard columns (combined file or after mapping):
 ## Calculation rules
 
 - Variance = actual − baseline. Percentage = variance ÷ baseline × 100, calculated before display rounding.
-- Positive expense variance is **unfavorable**; negative is **favorable**.
+- Positive expense variance is **unfavorable**; negative is **favorable**. For sales it is the other way round.
+- A line whose actual or comparison value is below zero is a **negative balance**: always in scope (any size), flagged, and never Recurring. Percentages divide by the size of the baseline, so a negative baseline keeps the right direction.
 - Zero baseline → percentage is N/A; only the amount threshold applies. Zero movement is never material.
 - Defaults: material when |variance| ≥ INR 50,000 **and** |%| ≥ 5%. With cost centres, those apply to account totals, and each cost centre line uses INR 25,000 **and** 10%.
 - Spread rule: if a country × account total is material but none of its lines is, every line in it with a movement must be explained.
@@ -160,7 +162,7 @@ Standard columns (combined file or after mapping):
 
 ## Limitations
 
-Expense accounts only (no revenue or credits), one month per file, INR only. The master catches cost centres with no data, but an account missing from a cost centre that has other rows can't be detected without an expected cost centre × account roster. Explanations saved at one level (e.g. cost centre) don't carry over if you switch to another level. Notes live in the browser session unless you download the explanations backup. The checker verifies figures, direction and review status, not meaning: an AI sentence can still paraphrase an explanation loosely, so commentary must be read before use. Demo mode only covers the sample data with the demo explanations. Reference labels are not fetched or verified, and "confirmed" is the reviewer's assertion. Full details are in [VERIFICATION.md](VERIFICATION.md).
+One month per file, INR only. The master catches cost centres with no data, but an account missing from a cost centre that has other rows can't be detected without an expected cost centre × account roster. Explanations saved at one level (e.g. cost centre) don't carry over if you switch to another level. Notes live in the browser session unless you download the explanations backup. The checker verifies figures, direction and review status, not meaning: an AI sentence can still paraphrase an explanation loosely, so commentary must be read before use. Demo mode only covers the sample data with the demo explanations. Reference labels are not fetched or verified, and "confirmed" is the reviewer's assertion. Full details are in [VERIFICATION.md](VERIFICATION.md).
 
 ## Roadmap
 

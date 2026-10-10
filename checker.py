@@ -5,8 +5,9 @@ from decimal import Decimal, InvalidOperation
 UNITS = {'lakh': Decimal('1e5'), 'lakhs': Decimal('1e5'), 'lac': Decimal('1e5'), 'crore': Decimal('1e7'),
          'crores': Decimal('1e7'), 'cr': Decimal('1e7'), 'million': Decimal('1e6'), 'mn': Decimal('1e6'),
          'k': Decimal('1e3'), 'thousand': Decimal('1e3')}
-# Digits inside codes such as CC-1001 or FY27 are not figures, hence the look-behind.
-NUMBER = re.compile(r'(?<![\w.\-/])(\d[\d,]*(?:\.\d+)?)\s*(%|percent\b|pts?\b|pp\b|points?\b|percentage points?\b|lakhs?\b|lac\b|crores?\b|cr\b|million\b|mn\b|k\b|thousand\b)?', re.I)
+# Digits inside codes such as CC-1001, FY27 or Aug-2026 are not figures, hence the look-behinds. A minus sign
+# before a figure ("INR -15,000") is not part of a code, so that figure is still checked.
+NUMBER = re.compile(r'(?<![\w./])(?<!\w-)(\d[\d,]*(?:\.\d+)?)\s*(%|percent\b|pts?\b|pp\b|points?\b|percentage points?\b|lakhs?\b|lac\b|crores?\b|cr\b|million\b|mn\b|k\b|thousand\b)?', re.I)
 POINTS = ('pt', 'pts', 'pp', 'point', 'points', 'percentage point', 'percentage points')
 
 

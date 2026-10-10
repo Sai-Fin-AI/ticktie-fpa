@@ -68,6 +68,11 @@ def _whole(value):
     return f'INR {fmt.group(_d(value))}'
 
 
+def _balance(value):
+    """An actual, budget or profit, keeping the minus sign of a loss or a negative balance."""
+    return f'INR {fmt.balance(_d(value))}'
+
+
 def _compact(value):
     return fmt.compact(_d(value))
 
@@ -130,8 +135,8 @@ def _pl_facts(pack):
     for e in pack.get('pl') or []:
         if e['kind'] == 'subtotal' or (e['kind'] == 'line' and e['label'] == 'Sales'):
             v = _d(e['variance'])
-            out[e['label']] = (f"{_whole(e['actual'])} vs {_whole(e['baseline'])}: {_whole(v)} "
-                               f"{'above' if v > 0 else 'below'} plan ({e['direction'].lower()})" if v else f"{_whole(e['actual'])}, on plan")
+            out[e['label']] = (f"{_balance(e['actual'])} vs {_balance(e['baseline'])}: {_whole(v)} "
+                               f"{'above' if v > 0 else 'below'} plan ({e['direction'].lower()})" if v else f"{_balance(e['actual'])}, on plan")
         elif e['kind'] == 'margin':
             out[MARGIN_NAMES.get(e['label'], e['label'])] = f"{_d(e['actual_pct']):.1f}% vs {_d(e['baseline_pct']):.1f}% ({_pts(e['pts'])})"
     return out
@@ -147,7 +152,7 @@ def _facts(pack):
         'period': pack['period'], 'comparison': basis, 'review_total': name,
         'net': f"{name} {_whole(t['variance'])} {word} {basis} ({t['direction'].lower()})",
         'net_pct': pct_text(t) if t['pct'] is not None else 'N/A',
-        'actual': _whole(t['actual']), basis: _whole(t['baseline']),
+        'actual': _balance(t['actual']), basis: _balance(t['baseline']),
         'explained_share': f'{share:.0f}%' if share is not None else 'N/A',
         'explained_confirmed': _whole(s['explained']), 'unexplained': _whole(s['unexplained']),
         'lines_to_explain': s['material'], 'open_items': s['open_items'],
@@ -217,10 +222,10 @@ def default_summary(pack):
     t, s, basis = pack['totals'], pack['summary'], pack['basis']
     if _profit(pack):
         name, word = _total_words(pack)
-        first = (f"{name} {_whole(t['actual'])} vs {basis} {_whole(t['baseline'])}: {_whole(t['variance'])} {word} "
+        first = (f"{name} {_balance(t['actual'])} vs {basis} {_balance(t['baseline'])}: {_whole(t['variance'])} {word} "
                  f"({t['direction'].lower()}).")
     else:
-        first = f"Actual {_whole(t['actual'])} vs {basis} {_whole(t['baseline'])}: net {_whole(t['variance'])} {t['direction'].lower()}."
+        first = f"Actual {_balance(t['actual'])} vs {basis} {_balance(t['baseline'])}: net {_whole(t['variance'])} {t['direction'].lower()}."
     return [first,
             f"Confirmed explanations cover {_whole(s['explained'])}; {_whole(s['unexplained'])} remains unexplained.",
             f"{s['open_items']} open item(s) across {s['material']} lines that need explanation."]
@@ -564,7 +569,7 @@ def _summary_slide(deck, pack, headline, bullets, footer):
             sub = f"{_signed(e['impact'])} vs {pack['basis']}" + (f" · {_d(margin['actual_pct']):.1f}% margin" if margin else '')
             tiles.append((label, ('−' if _d(e['actual']) < 0 else '') + _plain(e['actual']), sub, _dir_tone(e['direction'])))
     else:
-        tiles = [('Actual', _plain(t['actual']), 'INR', INK), (pack['basis'].title(), _plain(t['baseline']), 'INR', INK),
+        tiles = [('Actual', fmt.balance(_d(t['actual'])), 'INR', INK), (pack['basis'].title(), fmt.balance(_d(t['baseline'])), 'INR', INK),
                  ('Net variance', _signed(t['variance']), f"INR · {t['direction']} · {_pct(t)}", _dir_tone(t['direction']))]
     tiles += [('Explained', f'{share:.0f}%' if share is not None else '–', 'confirmed share of movement', TEAL),
               ('Open items', str(s['open_items']), f"across {s['material']} lines to explain", AMBER if s['open_items'] else GREEN)]
@@ -711,7 +716,7 @@ def _top_slide(deck, pack, headline, footer):
         parts = [line['country'], *line.get('dims', {}).values(), line['attrs'].get('owner')]
         return ' · '.join(p for p in parts if p)
 
-    rows = [[f"{short_name(l)}\n{where(l)}", _signed(l['variance']), _pct(l), '● ' + _status(l), _plain(l['unexplained']),
+    rows = [[f"{short_name(l)}\n{where(l)}" + (' · ⚠ negative balance' if l.get('negative') else ''), _signed(l['variance']), _pct(l), '● ' + _status(l), _plain(l['unexplained']),
              _reason(l)] for _, l in lines]
     _table(slide, 0.6, 1.85, 12.13, ['LINE', 'VARIANCE INR', '%', 'STATUS', 'UNEXPLAINED INR', 'REASON GIVEN'], rows,
            [3.15, 1.35, 0.8, 1.4, 1.35, 4.08], row_h=0.56, size=11,
@@ -905,13 +910,15 @@ def _appendix_slides(deck, pack, footer):
     for start in range(0, max(len(lines), 1), 12):
         chunk = lines[start:start + 12]
         slide = _slide(deck, 'Appendix', f'Lines needing explanation ({start + 1}–{start + len(chunk)} of {len(lines)})', footer)
-        rows = [[l['label'], _plain(l['actual']), _plain(l['baseline']), _signed(l['variance']), _pct(l), '● ' + _status(l),
+        rows = [[l['label'] + (' · ⚠ negative balance' if l.get('negative') else ''), fmt.balance(_d(l['actual'])), fmt.balance(_d(l['baseline'])), _signed(l['variance']), _pct(l), '● ' + _status(l),
                  _plain(l['unexplained'])] for _, l in chunk]
         _table(slide, 0.6, 1.75, 12.13, ['LINE', 'ACTUAL INR', pack['basis'].upper() + ' INR', 'VARIANCE INR', '%', 'STATUS',
                                          'UNEXPLAINED INR'],
                rows, [4.3, 1.4, 1.4, 1.4, 0.93, 1.4, 1.3], row_h=0.38, size=10.5,
                colours=lambda r, c, chunk=chunk: (_dir_tone(chunk[r][1]['direction']) if c == 3 else
-                                                   STATUS_COLOUR[_status(chunk[r][1])] if c == 5 else None))
+                                                   STATUS_COLOUR[_status(chunk[r][1])] if c == 5 else
+                                                   AMBER if c in (1, 2) and _d(chunk[r][1]['actual' if c == 1 else 'baseline']) < 0
+                                                   else None))
 
 
 def build_deck(pack, headlines, summary, source):

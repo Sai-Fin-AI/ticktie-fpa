@@ -166,6 +166,8 @@ def _card(line, text, grouped=False):
         chips += _chip(TIMING[line['note']['timing']], BLUE if line['note']['timing'] != 'Unknown' else GREY)
     if line.get('scope') == 'Account total':
         chips += _chip('Σ Part of a material account total', AMBER)
+    if line.get('negative'):
+        chips += _chip('⚠ Negative balance: check for reversal or reclass', AMBER)
     title = (escape(cost_centre(line)) if grouped and cost_centre(line)
              else escape(line.get('label', f"{line['country']} | {line['account']}")).replace(' | ', f' <span style="color:{GREY}">|</span> '))
     if line.get('attrs', {}).get('owner'):
@@ -234,7 +236,8 @@ def commentary_html(pack, reply, issues, model, replaced=0):
             return _tile(name, ('−' if Decimal(e['actual']) < 0 else '') + _inr(e['actual'], 0), sub, colour)
         headline_tiles = [pl_tile(n) for n in ('Sales', 'EBITDA', 'Net profit') if n in rows]
     else:
-        headline_tiles = [_tile('Actual', _inr(t['actual'], 0)), _tile(basis.title(), _inr(t['baseline'], 0)),
+        balance = lambda v: ('−' if Decimal(v) < 0 else '') + _inr(v, 0)
+        headline_tiles = [_tile('Actual', balance(t['actual'])), _tile(basis.title(), balance(t['baseline'])),
                           _tile('Net variance', _inr(t['variance'], 0),
                                 f"{net_label}" + (f" · {pct_text(t)}" if t['pct'] is not None else ''), net_colour)]
     out.append('<div style="display:flex;flex-wrap:wrap;gap:10px">' + ''.join(headline_tiles + [

@@ -17,8 +17,8 @@ MAP = 'gl_code,gl_name,account\n510100,Salaries,Employee costs\n510200,Bonus,Emp
 
 
 def gl_demo():
-    data = merge_datasets(load_csv(sample_gl_csv(), allow_negative=True),
-                          load_csv(sample_gl_pl_csv(), 'Sales', allow_negative=True))
+    data = merge_datasets(load_csv(sample_gl_csv()),
+                          load_csv(sample_gl_pl_csv(), 'Sales'))
     return apply_gl_map(data, load_gl_map(sample_gl_map_csv()))
 
 
@@ -27,7 +27,7 @@ class RollUpTests(unittest.TestCase):
         data, info = gl_demo()
         accounts = merge_datasets(load_csv(sample_csv()), load_csv(sample_pl_csv(), 'Sales'))
         self.assertEqual(list(aggregate(data, data.dims)), list(aggregate(accounts, accounts.dims)))
-        self.assertEqual((info['gl_codes'], info['accounts'], info['unused']), (26, 10, []))
+        self.assertEqual((info['gl_codes'], info['accounts'], info['unused']), (28, 11, []))
         self.assertTrue(any(r['actual'] < 0 for r in data))  # the credit GL code 540900
 
     def test_drill_down_adds_up_to_the_line(self):
@@ -60,12 +60,10 @@ class RollUpTests(unittest.TestCase):
         parts = {p['gl_code']: p for p in gl_detail(data, line, 'budget')}
         self.assertEqual(parts['Employee costs']['gl_name'], 'Booked at account level')
 
-    def test_credit_gl_allowed_but_not_a_negative_account(self):
-        text = HEADER + '2026-08,India,IN-OPS,540900,INR,-50,-40,-40\n'
-        with self.assertRaisesRegex(ValueError, 'nonnegative'):
-            load_csv(text)
-        with self.assertRaisesRegex(ValueError, 'nets to a negative'):
-            apply_gl_map(load_csv(text, allow_negative=True), load_gl_map(MAP))
+    def test_an_account_may_net_below_zero(self):
+        data, _ = apply_gl_map(load_csv(HEADER + '2026-08,India,IN-OPS,540900,INR,-50,-40,-40\n'), load_gl_map(MAP))
+        (line,) = aggregate(data, data.dims)
+        self.assertEqual((line['account'], line['actual']), ('Warehousing', D(-50)))  # flagged by review_lines
 
     def test_separate_files_match_at_account_level(self):
         actuals = (['Month', 'Country', 'GL', 'Amount'], [['2026-08', 'India', '510100', 70], ['2026-08', 'India', '510200', 40]],
@@ -111,8 +109,8 @@ class AppTests(unittest.TestCase):
     def test_demo_runs_on_gl_codes(self):
         app = AppTest.from_file(str(APP), default_timeout=60).run()
         self.assertFalse(app.exception)
-        self.assertTrue(any('26 GL codes roll up into 10 accounts' in c.value for c in app.caption))
-        self.assertEqual({m.label: m.value for m in app.metric}['Net profit · INR'], '2,265,000')
+        self.assertTrue(any('28 GL codes roll up into 11 accounts' in c.value for c in app.caption))
+        self.assertEqual({m.label: m.value for m in app.metric}['Net profit · INR'], '2,270,000')
         view = next(r for r in app.radio if r.label == 'View by')
         view.set_value('GL codes').run()
         self.assertFalse(app.exception)

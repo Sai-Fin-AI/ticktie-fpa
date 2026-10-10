@@ -62,7 +62,10 @@ def fy_outlook(lines, period, fy_start, profit_terms=False):
         explained = Decimal(str(line['explained'] or 0))  # Decimal while building, text in a saved pack
         if line['material'] and explained:
             sign = (1 if line['direction'] == 'Favorable' else -1) if profit_terms else (1 if Decimal(str(line['variance'])) > 0 else -1)
-            by_timing[line['note']['timing']] += sign * explained
+            timing = line['note']['timing']
+            if timing == 'Recurring' and line.get('negative'):  # a reversal never runs on; make_note refuses it too
+                timing = 'One-off'
+            by_timing[timing] += sign * explained
     recurring = by_timing['Recurring']
     return {'fy': label, 'fy_start': MONTHS[fy_start - 1], 'months_left': months_left, 'terms': 'profit' if profit_terms else 'cost',
             'one_off': by_timing['One-off'], 'unknown_timing': by_timing['Unknown'],
@@ -96,6 +99,7 @@ def build_pack(rows, baseline, amount_threshold, pct_threshold, notes, total_thr
                 'actual': r['actual'],
                 'baseline': r[baseline], 'variance': r['variance'], 'pct': r['pct'],
                 'direction': r['direction'], 'material': r['material'], 'scope': r['scope'],
+                **({'negative': True} if r['negative'] else {}),
                 'note': {k: note[k] for k in NOTE_FIELDS} if note else None,
                 'explained': None, 'unexplained': None, 'commentary': None}
         if r['material']:
@@ -292,7 +296,8 @@ def pack_excel(pack):
     sheet('Variances', ids + ['Actual', base, 'Variance', 'Variance %', 'Outcome', 'Needs explanation'],
           [who(l) + (_money(l['actual']), _money(l['baseline']), _money(l['variance']),
                      _money(l['pct']) / 100 if l['pct'] is not None else 'N/A', l['direction'],
-                     ('Yes (account total)' if l['scope'] == 'Account total' else 'Yes') if l['material'] else 'No')
+                     f"Yes ({l['scope'].lower()})" if l['scope'] in ('Account total', 'Negative balance')
+                     else 'Yes' if l['material'] else 'No')
            for l in pack['lines']], money_cols=('Actual', base, 'Variance'), pct_cols=('Variance %',))
     material = [l for l in pack['lines'] if l['material']]
     sheet('Explanations', ids + ['Variance', 'Note ID', 'Explanation', 'Reference', 'Amount stated',

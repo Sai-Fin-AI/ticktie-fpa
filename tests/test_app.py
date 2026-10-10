@@ -27,10 +27,10 @@ class AppTests(unittest.TestCase):
     def test_default_demo_is_a_full_p_and_l(self):
         app = self.new_app()
         self.assertEqual(self.metrics(app), {
-            'Sales · INR': '30,500,000', 'EBITDA · INR': '4,220,000', 'Net profit · INR': '2,265,000',
-            'Lines to explain': '13', 'Explained (confirmed)': '0%'})
-        self.assertEqual(self.deltas(app)['Net profit · INR'], '−210,000 vs budget')
-        self.assertEqual(len(app.dataframe[0].value), 38)  # 23 expense lines + 15 sales and other P&L lines
+            'Sales · INR': '30,500,000', 'EBITDA · INR': '4,225,000', 'Net profit · INR': '2,270,000',
+            'Lines to explain': '14', 'Explained (confirmed)': '0%'})
+        self.assertEqual(self.deltas(app)['Net profit · INR'], '−195,000 vs budget')
+        self.assertEqual(len(app.dataframe[0].value), 39)  # 24 expense lines + 15 sales and other P&L lines
         self.assertIn('Synthetic demo data', app.info[0].value)
         self.assertTrue(any('Gross margin 54.4% (-0.6 pts)' in c.value for c in app.caption))
 
@@ -38,22 +38,22 @@ class AppTests(unittest.TestCase):
         app = self.new_app()
         app.sidebar.file_uploader[0].upload('expenses.csv', sample_csv().encode(), 'text/csv').run()
         self.assertEqual(self.metrics(app), {
-            'Actual expense · INR': '12,380,000', 'Budget · INR': '12,000,000',
-            'Net variance · INR': '+380,000', 'Lines to explain': '13', 'Explained (confirmed)': '0%'})
-        self.assertEqual(len(app.dataframe[0].value), 23)
+            'Actual expense · INR': '12,375,000', 'Budget · INR': '12,010,000',
+            'Net variance · INR': '+365,000', 'Lines to explain': '14', 'Explained (confirmed)': '0%'})
+        self.assertEqual(len(app.dataframe[0].value), 24)
         self.assertFalse(any(s.label == 'Waterfall for' for s in app.selectbox))
 
     def test_forecast_comparison(self):
         app = self.new_app()
         self.choose(app, 'Compare actuals against', 'forecast')
-        self.assertEqual(self.deltas(app)['Net profit · INR'], '−105,000 vs forecast')
+        self.assertEqual(self.deltas(app)['Net profit · INR'], '−97,500 vs forecast')
         self.assertEqual(self.deltas(app)['Sales · INR'], '+250,000 vs forecast')
 
     def test_country_filter_and_zero_budget(self):
         app = self.new_app()
         self.choose(app, 'Country', 'India')
         self.assertEqual(self.metrics(app)['Sales · INR'], '12,300,000')
-        self.assertEqual(self.metrics(app)['Net profit · INR'], '1,659,000')
+        self.assertEqual(self.metrics(app)['Net profit · INR'], '1,664,000')
         frame = app.dataframe[0].value
         self.assertEqual(set(frame['Country']), {'India'})
         consulting = frame.loc[frame['Account'] == 'Consulting'].iloc[0]
@@ -63,16 +63,20 @@ class AppTests(unittest.TestCase):
     def test_threshold_change(self):
         app = self.new_app()
         next(x for x in app.number_input if x.label == 'Minimum variance (INR)').set_value(1000000).run()
-        self.assertEqual(self.metrics(app)['Lines to explain'], '10')  # spread rule off; cost centre lines still flagged
+        self.assertEqual(self.metrics(app)['Lines to explain'], '11')  # spread rule off; cost centre and negative lines still flagged
         next(x for x in app.number_input if x.label == 'Line minimum variance (INR)').set_value(1000000).run()
-        self.assertEqual(self.metrics(app)['Lines to explain'], '0')
-        self.assertTrue(any('No account movements meet' in x.value for x in app.markdown))
+        self.assertEqual(self.metrics(app)['Lines to explain'], '1')  # a negative balance needs a look whatever its size
+        frame = app.dataframe[0].value
+        flagged = frame.loc[frame['Material'] != 'No']
+        self.assertEqual(list(flagged['Account']), ['Recruitment'])
+        self.assertEqual((flagged.iloc[0]['Material'], flagged.iloc[0]['Flag']), ('Yes (negative balance)', '⚠️ Negative balance'))
+        self.assertTrue(any('Negative balance: the actual is INR -5,000.00' in w.value for w in app.warning))
 
     def test_uploaded_values_replace_demo_and_label(self):
         app = self.new_app()
         changed = sample_csv('account').replace('2100000', '2200000', 1)
         app.sidebar.file_uploader[0].upload('changed.csv', changed.encode(), 'text/csv').run()
-        self.assertEqual(self.metrics(app)['Actual expense · INR'], '12,480,000')
+        self.assertEqual(self.metrics(app)['Actual expense · INR'], '12,475,000')
         self.assertIn('Uploaded data is loaded', app.info[0].value)
         self.assertFalse(any('Synthetic demo data is loaded' in x.value for x in app.info))
         app.sidebar.file_uploader[0].clear().run()
@@ -102,9 +106,9 @@ class AppTests(unittest.TestCase):
         self.assertIn('Owner', app.dataframe[0].value.columns)
         next(x for x in app.multiselect if x.label == 'Analyse by').unselect('cost_center').run()
         self.assertEqual(self.metrics(app), {
-            'Sales · INR': '30,500,000', 'EBITDA · INR': '4,220,000', 'Net profit · INR': '2,265,000',
-            'Lines to explain': '9', 'Explained (confirmed)': '0%'})
-        self.assertEqual(len(app.dataframe[0].value), 29)
+            'Sales · INR': '30,500,000', 'EBITDA · INR': '4,225,000', 'Net profit · INR': '2,270,000',
+            'Lines to explain': '10', 'Explained (confirmed)': '0%'})
+        self.assertEqual(len(app.dataframe[0].value), 30)
         self.assertFalse(any(x.label == 'Line minimum variance (INR)' for x in app.number_input))
 
     def test_rollup_views_show_gross_and_offsets(self):
@@ -137,7 +141,7 @@ class AppTests(unittest.TestCase):
         changed = sample_csv('account').replace('2100000', '2200000', 1)
         first.sidebar.file_uploader[0].upload('changed.csv', changed.encode(), 'text/csv').run()
         second = self.new_app()
-        self.assertEqual(self.metrics(first)['Actual expense · INR'], '12,480,000')
+        self.assertEqual(self.metrics(first)['Actual expense · INR'], '12,475,000')
         self.assertEqual(self.metrics(second)['Sales · INR'], '30,500,000')
 
 
@@ -151,8 +155,8 @@ class DemoNotesTests(unittest.TestCase):
         self.assertEqual(app.text_input[1].value, '180000')
         self.assertEqual(next(s for s in app.selectbox if s.label == 'Review status').value, 'Confirmed by reviewer')
         explained = next(m for m in app.metric if m.label == 'Explained (confirmed)')
-        self.assertEqual(explained.value, '49%')
-        self.assertTrue(any('Loaded 6 demo explanations' in s.value for s in app.success))
+        self.assertEqual(explained.value, '50%')
+        self.assertTrue(any('Loaded 7 demo explanations' in s.value for s in app.success))
 
 
 if __name__ == '__main__':

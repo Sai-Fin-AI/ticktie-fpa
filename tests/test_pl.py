@@ -62,15 +62,15 @@ class StatementTests(unittest.TestCase):
 
     def test_subtotals_and_margins(self):
         expect = {'Sales': (30500000, 30000000, 500000), 'Gross margin': (16600000, 16500000, 100000),
-                  'EBITDA': (4220000, 4500000, -280000), 'EBIT': (3320000, 3600000, -280000),
-                  'Profit before tax': (3020000, 3300000, -280000), 'Net profit': (2265000, 2475000, -210000),
-                  'Operating expenses': (12380000, 12000000, -380000), 'Tax': (755000, 825000, 70000)}
+                  'EBITDA': (4225000, 4490000, -265000), 'EBIT': (3325000, 3590000, -265000),
+                  'Profit before tax': (3025000, 3290000, -265000), 'Net profit': (2270000, 2465000, -195000),
+                  'Operating expenses': (12375000, 12010000, -365000), 'Tax': (755000, 825000, 70000)}
         for label, (actual, plan, impact) in expect.items():
             with self.subTest(label=label):
                 e = self.pl[label]
                 self.assertEqual((e['actual'], e['baseline'], e['impact']), (D(actual), D(plan), D(impact)))
         self.assertEqual(round(self.pl['Gross margin %']['pts'], 2), D('-0.57'))
-        self.assertEqual(round(self.pl['EBITDA %']['actual_pct'], 1), D('13.8'))
+        self.assertEqual(round(self.pl['EBITDA %']['actual_pct'], 1), D('13.9'))
         self.assertEqual(self.pl['Tax']['direction'], 'Favorable')  # tax below plan helps profit
         order = [e['label'] for e in statement(self.rows, 'budget') if e['kind'] in ('line', 'subtotal')]
         self.assertEqual(order, ['Sales', 'Cost of sales', 'Gross margin', 'Operating expenses', 'EBITDA',
@@ -88,7 +88,7 @@ class StatementTests(unittest.TestCase):
                 walk = bridge(self.rows, 'budget', measure)
                 self.assertEqual(walk['start'] + sum(v for _, v, _ in walk['steps']), walk['end'])
         ebitda = bridge(self.rows, 'budget', 'EBITDA')
-        self.assertEqual((ebitda['start'], ebitda['end']), (D(4500000), D(4220000)))
+        self.assertEqual((ebitda['start'], ebitda['end']), (D(4490000), D(4225000)))
         costs = bridge(self.rows, 'budget', 'Costs')
         self.assertEqual(costs['steps'][0], ('Cost of goods sold', D(400000), False))  # more cost is unfavorable
         self.assertEqual(bridge(self.rows, 'budget', 'Sales')['steps'], [('Product sales', D(500000), True)])
@@ -103,7 +103,7 @@ class WaterfallChartTests(unittest.TestCase):
         self.assertFalse(layer['encoding']['x']['axis']['labelOverlap'])  # never hide labels, or names shift bars
         steps = [row['step'] for row in spec['datasets'][next(iter(spec['datasets']))]]
         self.assertEqual(steps, ['Budget costs', 'Cost of goods sold', 'Distribution', 'Consulting', 'Income tax',
-                                 'Employee costs', 'Warehousing', 'Actual costs'])
+                                 'Employee costs', 'Warehousing', 'Recruitment', 'Actual costs'])
 
 
 class SalesUploadTests(unittest.TestCase):
@@ -116,7 +116,7 @@ class SalesUploadTests(unittest.TestCase):
         self.assertIn('Actual expense · INR', [m.label for m in app.metric])
         app.sidebar.file_uploader[1].upload('sales.csv', sample_pl_csv().encode(), 'text/csv').run()
         self.assertFalse(app.exception)
-        self.assertEqual({m.label: m.value for m in app.metric}['Net profit · INR'], '2,265,000')
+        self.assertEqual({m.label: m.value for m in app.metric}['Net profit · INR'], '2,270,000')
         waterfall = next(s for s in app.selectbox if s.label == 'Waterfall for')
         self.assertEqual(waterfall.options, list(BRIDGES))
         waterfall.set_value('Sales').run()

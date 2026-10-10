@@ -2,7 +2,7 @@
 import hashlib
 import json
 from decimal import Decimal, InvalidOperation
-from finance import commentary
+from finance import commentary, negative_balance
 
 STATUSES = ('Unconfirmed', 'Confirmed by reviewer', 'Conflicting explanations')
 TIMINGS = ('Unknown', 'One-off', 'Recurring', 'Timing difference')
@@ -25,6 +25,10 @@ def make_note(row, baseline, reason, reference, amount, status, timing, action='
         raise ValueError('The explanation, reference or action is too long.')
     if status not in STATUSES or timing not in TIMINGS:
         raise ValueError('Select a valid review status and timing.')
+    if timing == 'Recurring' and negative_balance(row, baseline):
+        raise ValueError('This line has a negative balance, which is usually a reversal, reclass or misposting, so it '
+                         'cannot be marked Recurring: that would roll it forward into the full-year view. '
+                         'Choose One-off, Timing difference or Unknown.')
     try:
         value = Decimal(str(amount))
         if not value.is_finite() or value < 0 or value != value.quantize(Decimal('.01')):

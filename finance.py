@@ -86,11 +86,11 @@ def _header(reader):
     return names
 
 
-def load_csv(text, default_line=OPEX, allow_negative=False):
+def load_csv(text, default_line=OPEX):
     """default_line: the P&L line for accounts whose name does not say (no pl_line column).
 
-    allow_negative: GL-level data, where a credit GL code (a recovery, a reversal) may be negative; the
-    accounts it rolls up to are checked for a negative net by apply_gl_map.
+    Amounts may be negative: a credit GL code, a reversal, a credit note. A line that nets below zero is
+    flagged by review_lines and always needs an explanation.
     """
     reader = csv.reader(io.StringIO(text.lstrip('﻿')))
     names = _header(reader)
@@ -124,11 +124,10 @@ def load_csv(text, default_line=OPEX, allow_negative=False):
         for field in AMOUNTS:
             try:
                 value = Decimal(raw[field])
-                if not value.is_finite() or (value < 0 and not allow_negative) or value != value.quantize(Decimal('.01')):
+                if not value.is_finite() or value != value.quantize(Decimal('.01')):
                     raise InvalidOperation
             except InvalidOperation:
-                kind = 'a' if allow_negative else 'a nonnegative'
-                raise ValueError(f'Row {line}: {field} must be {kind} number with at most 2 decimals.') from None
+                raise ValueError(f'Row {line}: {field} must be a number with at most 2 decimals.') from None
             row[field] = value
         if CC in dims:
             info = {'country': raw['country'], **{a: raw[a] for a in attr_cols}}
@@ -263,8 +262,7 @@ def apply_gl_map(dataset, gl_map):
     """Roll the data's GL codes up to reporting accounts.
 
     Returns (dataset, summary). Rows keep their gl_code and gl_name, so aggregate() adds up the GL codes of an
-    account and gl_lines() shows them. Unknown codes stop with UnmappedGL; an account whose GL codes net to a
-    negative amount stops (credits larger than spend are not supported).
+    account and gl_lines() shows them. Unknown codes stop with UnmappedGL.
     """
     accounts = {e['account'] for e in gl_map.values()}
     present = sorted({r['account'] for r in dataset})
@@ -282,11 +280,6 @@ def apply_gl_map(dataset, gl_map):
                              'Add a pl_line column to the GL mapping so each account sits on one line.')
         rows.append({**r, 'account': account, 'pl_line': line, GL: r['account'], 'gl_name': entry['gl_name']})
     result = Dataset(rows, dataset.dims, dataset.attrs)
-    for total in aggregate(result, result.dims):
-        for field in AMOUNTS:
-            if total[field] < 0:
-                raise ValueError(f'{line_label(total)}: {field} nets to a negative INR {total[field]:,.2f} after adding up '
-                                 'its GL codes. Credits larger than spend are not supported.')
     used = [c for c in present if c in gl_map]
     return result, {'gl_codes': len(used), 'accounts': len({gl_map[c]['account'] for c in used}),
                     'unused': [c for c in gl_map if c not in set(present)]}
@@ -390,6 +383,15 @@ def is_sales(row):
     return row.get('pl_line') == SALES
 
 
+NEGATIVE_NOTE = 'usually a reversal, reclass or misposting; check the posting before relying on the variance'
+
+
+def negative_balance(row, baseline):
+    """A line whose actual or comparison value nets below zero (Travel at INR -15,000). It is valid
+    accounting, but rare enough that it always needs a reviewer's explanation."""
+    return row['actual'] < 0 or row[baseline] < 0
+
+
 def compare(actual, baseline, amount_threshold=Decimal('50000'), pct_threshold=Decimal('5'), higher_is_better=False):
     """higher_is_better: True for sales and profit, False for costs."""
     if amount_threshold < 0 or pct_threshold < 0:
@@ -415,6 +417,7 @@ def review_lines(rows, baseline, line_thresholds, total_thresholds=None):
     A line qualifies on its own thresholds. When lines are finer than country x account (for example
     by cost centre), an account total that is material while none of its lines is ("spread" variance)
     brings every moving line in that account into scope, so the owners explain their share.
+    A moving line with a negative balance is always in scope ('Negative balance'), whatever its size.
     """
     results = analyze(rows, baseline, *line_thresholds)
     for r in results:
@@ -430,6 +433,10 @@ def review_lines(rows, baseline, line_thresholds, total_thresholds=None):
                 for m in members:
                     if m['variance']:
                         m['material'], m['scope'] = True, 'Account total'
+    for r in results:
+        r['negative'] = negative_balance(r, baseline)
+        if r['negative'] and r['variance'] and not r['material']:
+            r['material'], r['scope'] = True, 'Negative balance'
     return results
 
 
@@ -439,9 +446,13 @@ def commentary(row, baseline):
     if not row['variance']:
         return prefix + f"{noun} equals {baseline} at INR {row['actual']:,.2f}."
     pct = f"{abs(row['pct']):.1f}%" if row['pct'] is not None else 'percentage N/A; zero baseline'
+    flag = ''
+    if negative_balance(row, baseline):
+        which = 'actual' if row['actual'] < 0 else baseline
+        flag = f" Negative balance: the {which} is INR {row[which]:,.2f}, {NEGATIVE_NOTE}."
     return (prefix + f"{noun} is INR {abs(row['variance']):,.2f} "
             f"{'above' if row['variance'] > 0 else 'below'} {baseline} "
-            f"({pct}; {row['direction'].lower()}). "
+            f"({pct}; {row['direction'].lower()}).{flag} "
             'The input does not establish the cause. Confirm the explanation with the account owner.')
 
 
@@ -526,6 +537,7 @@ SAMPLE_LINES = (
     ('India', 'IN-SAL', 'Employee costs', 900000, 60000), ('India', 'IN-OPS', 'Employee costs', 600000, 20000),
     ('India', 'IN-COR', 'Employee costs', 500000, 20000), ('India', 'IN-SAL', 'Travel', 150000, -70000),
     ('India', 'IN-COR', 'Travel', 50000, 10000), ('India', 'IN-COR', 'Consulting', 0, 75000),
+    ('India', 'IN-COR', 'Recruitment', 10000, -15000),  # an agency credit note: the account nets to -5,000
     ('India', 'IN-OPS', 'Warehousing', 800000, 0), ('India', 'IN-SAL', 'Distribution', 300000, -40000),
     ('India', 'IN-OPS', 'Distribution', 700000, 240000),
     ('Singapore', 'SG-SAL', 'Employee costs', 1200000, 90000), ('Singapore', 'SG-OPS', 'Employee costs', 800000, -90000),
@@ -565,9 +577,11 @@ def sample_csv(level='cost_center'):
         movements = ((100000, -60000, 75000, 0, 200000),
                      (0, 10000, 0, -80000, 40000),
                      (-150000, 50000, 55000, 40000, 100000))
-        return _csv(FIELDS, [('2026-08', country, account, 'INR', budget + change, budget, budget + (change // 2))
-                             for country, changes in zip(countries, movements)
-                             for account, budget, change in zip(accounts, budgets, changes)])
+        rows = [('2026-08', country, account, 'INR', budget + change, budget, budget + (change // 2))
+                for country, changes in zip(countries, movements)
+                for account, budget, change in zip(accounts, budgets, changes)]
+        rows.insert(5, ('2026-08', 'India', 'Recruitment', 'INR', -5000, 10000, 2500))  # a negative balance
+        return _csv(FIELDS, rows)
     return _csv(('month', 'country', CC, 'account', 'currency', 'actual', 'budget', 'forecast'),
                 [('2026-08', country, cc, account, 'INR', budget + change, budget, budget + change // 2)
                  for country, cc, account, budget, change in SAMPLE_LINES])
@@ -618,6 +632,7 @@ SAMPLE_GL = {
     'Warehousing': (('540100', 'Warehouse rent', 70, 20), ('540200', '3PL handling charges', 40, 70),
                     ('540300', 'Warehouse utilities', 10, 10), ('540900', 'Warehouse recharges to group', -20, 0)),
     'Distribution': (('550100', 'Outbound freight', 60, 80), ('550200', 'Courier', 25, 10), ('550300', 'Packaging', 15, 10)),
+    'Recruitment': (('560100', 'Recruitment agency fees', 80, 100), ('560200', 'Job portal subscriptions', 20, 0)),
     'Product sales': (('410100', 'Sales to distributors', 70, 50), ('410200', 'Online sales', 30, 50)),
     'Cost of goods sold': (('610100', 'Materials consumed', 75, 80), ('610200', 'Freight inward', 15, 15),
                            ('610300', 'Direct labour', 10, 5)),

@@ -108,6 +108,24 @@
       "status": "Confirmed by reviewer",
       "timing": "One-off",
       "action": "Add audit support to next year's budget."
+    },
+    {
+      "key": [
+        "2026-08",
+        "India",
+        "cost_center=IN-COR",
+        "Recruitment",
+        "INR",
+        "-5000",
+        "10000",
+        "budget"
+      ],
+      "reason": "Agency credit note: the July placement fee was refunded after the candidate withdrew.",
+      "reference": "Fictional agency credit note CN-0731",
+      "amount": "15000",
+      "status": "Confirmed by reviewer",
+      "timing": "One-off",
+      "action": "Restart the search in September; the role is still open."
     }
   ]
 }

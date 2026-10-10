@@ -9,7 +9,7 @@ from decimal import Decimal
 
 import fmt
 from finance import MARGIN_NAMES
-from agents import (cost_centre, coverage, full_year_facts, grouped_lines, inr, line_facts, material_lines, offset_sentences,
+from agents import (cost_centre, coverage, full_year_facts, grouped_lines, inr, inr_balance, line_facts, material_lines, offset_sentences,
                     owner)
 from checker import (account_total_confusion, short_name, allowed_figures, check_line_text, internal_codes, misattributed_figures,
                      unsupported_figures)
@@ -34,7 +34,8 @@ Rules, in order of importance:
    "India Operations Distribution"). With cost centres, a country plus an account ("India Distribution") means the
    account total across all cost centres, so never use it for a single line.
 8. line_id values (L01, L02...) are internal. Never write them in the text; name the country, cost centre or account instead.
-9. A line marked why_in_scope is small on its own; say it is part of a wider account movement.
+9. A line marked why_in_scope is small on its own; say why it is in scope, using that fact.
+10. A line with a negative_balance fact: say it is a negative balance, as that fact says. Never present it as a saving.
 Executive summary: 2 to 4 short bullets covering the net result, the largest explained drivers and what remains open.
 For drivers, copy phrases from "largest_explained_drivers"; never pair a name with an amount from another fact.
 When a sentence quotes amounts, it names only one line or account (use separate sentences for separate lines).
@@ -52,7 +53,7 @@ SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': ['executi
 def _facts(pack):
     t, s, basis = pack['totals'], pack['summary'], pack['basis']
     facts = {'period': pack['period'], 'comparison': basis, 'scope': pack['scope'], 'review_total': t.get('name', 'Expenses'),
-            'total_actual': inr(t['actual']), f'total_{basis}': inr(t['baseline']),
+            'total_actual': inr_balance(t['actual']), f'total_{basis}': inr_balance(t['baseline']),
             'net_movement': f"{inr(t['variance'])} {'above' if Decimal(t['variance']) > 0 else 'below'} {basis}",
             'net_outcome': t['direction'], 'material_movements': s['material'],
             'explained_confirmed': inr(s['explained']), 'unexplained': inr(s['unexplained']), 'open_items': s['open_items'],
@@ -72,8 +73,8 @@ def pl_facts(pack):
     for e in pack.get('pl') or []:
         if e['kind'] == 'subtotal' or (e['kind'] == 'line' and e['label'] == 'Sales'):
             v = Decimal(e['variance'])
-            out[e['label']] = (f"{inr(e['actual'])} against {inr(e['baseline'])}: {inr(v)} {'above' if v > 0 else 'below'} plan "
-                               f"({e['direction'].lower()})" if v else f"{inr(e['actual'])}, on plan")
+            out[e['label']] = (f"{inr_balance(e['actual'])} against {inr_balance(e['baseline'])}: {inr(v)} {'above' if v > 0 else 'below'} plan "
+                               f"({e['direction'].lower()})" if v else f"{inr_balance(e['actual'])}, on plan")
         elif e['kind'] == 'margin':
             pts = Decimal(e['pts'])
             out[MARGIN_NAMES.get(e['label'], e['label'])] = (f"{Decimal(e['actual_pct']):.1f}% against {Decimal(e['baseline_pct']):.1f}% "
@@ -137,6 +138,10 @@ def standard_line(pack, line):
     variance = Decimal(line['variance'])
     noun = 'Revenue' if line.get('pl_line') == 'Sales' else 'Expense'
     move = f"{noun} is {inr(variance)} {'above' if variance > 0 else 'below'} {pack['basis']} ({line['direction'].lower()})."
+    if line.get('negative'):
+        which = 'actual' if Decimal(line['actual']) < 0 else pack['basis']
+        value = line['actual'] if which == 'actual' else line['baseline']
+        move += f' The {which} is a negative balance of {inr_balance(value)}, usually a reversal, reclass or misposting.'
     lead = STATUS_LEADS[line['note']['status']]
     reason = ' '.join(line['note']['reason'].split()).rstrip('.')
     allowed = allowed_figures(pack)
@@ -151,7 +156,7 @@ def standard_summary(pack):
     word = 'above' if Decimal(t['variance']) > 0 else 'below'
     name = t.get('name', 'Expenses')
     bullets = [f"{name} {'were' if name == 'Expenses' else 'was'} {inr(t['variance'])} {word} {basis} ({t['direction'].lower()}): "
-               f"actual {inr(t['actual'])} against {inr(t['baseline'])}.",
+               f"actual {inr_balance(t['actual'])} against {inr_balance(t['baseline'])}.",
                f"Confirmed explanations cover {inr(s['explained'])}; {inr(s['unexplained'])} remains unexplained "
                f"across {s['open_items']} open item(s)."]
     offsets = offset_sentences(pack)

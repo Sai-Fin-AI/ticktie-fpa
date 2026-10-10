@@ -1,8 +1,8 @@
 {
   "model": "Ollama (this computer) · qwen3:8b",
-  "recorded_on": "2026-10-09",
+  "recorded_on": "2026-10-10",
   "responses": {
-    "interview:aac9f170ddf259ebde1548dba4cfd19a41668509a4f3e6cbb8efce5a7736d1f3": {
+    "interview:0d91a241de317a5b20d26fa61755810c9122d777d3bb9321589e33a06ee70c7d": {
       "reviews": [
         {
           "line_id": "L01",
@@ -27,67 +27,38 @@
         {
           "line_id": "L07",
           "quality": "vague",
-          "question": "Which carrier rates specifically increased, and what was the impact on volume?"
+          "question": "Which carrier rates increased and by how much?"
         },
         {
           "line_id": "L08",
           "quality": "vague",
-          "question": "What caused the higher costs in the India Sales cost centre?"
+          "question": "What caused the higher costs?"
+        },
+        {
+          "line_id": "L14",
+          "quality": "specific",
+          "question": ""
         }
       ]
     },
-    "commentary:aac9f170ddf259ebde1548dba4cfd19a41668509a4f3e6cbb8efce5a7736d1f3": {
+    "commentary:0d91a241de317a5b20d26fa61755810c9122d777d3bb9321589e33a06ee70c7d": {
       "executive_summary": [
-        "Net profit was INR 210,000.00 below budget, unfavorable, with INR 495,000.00 explained and INR 515,000.00 unexplained.",
-        "India Operations Distribution and Australia Sales Employee costs were the largest explained drivers, with India's distribution variance explained by urgent air freight and Australia's employee costs due to vacant roles.",
-        "India's Distribution had a net unfavorable movement of INR 240,000.00, partially offset by Singapore's Employee costs, which were neutral on plan.",
-        "The full-year effect of confirmed items is INR 465,000.00 above plan, assuming recurring items continue at this month's level."
+        "Net profit was INR 195,000.00 below budget, driven by unfavorable variances in India and Australia, partially offset by favorable variances in Singapore and Australia.",
+        "The largest explained drivers include India's Distribution costs (INR 240,000.00 unfavorable) and Australia's Employee costs (INR 150,000.00 favorable).",
+        "Unexplained variances total INR 515,000.00, with India's Distribution and Australia's Distribution being key areas requiring further review."
       ],
       "lines": [
         {
           "line_id": "L01",
-          "commentary": "India Operations Distribution was INR 240,000.00 above budget, unfavorable, with INR 180,000.00 explained by urgent air freight for festive-season stock due to a supplier delay."
+          "commentary": "India Operations Distribution was INR 240,000.00 above budget, with INR 180,000.00 explained due to urgent air freight for festive-season stock after a supplier delay."
         },
         {
           "line_id": "L02",
-          "commentary": "Australia Sales Employee costs were INR 150,000.00 below budget, favorable, fully explained by two vacant roles in the Sydney sales team."
+          "commentary": "Australia Sales Employee costs were INR 150,000.00 below budget, fully explained by two vacant roles in the Sydney sales team."
         },
         {
           "line_id": "L03",
-          "commentary": "Singapore Operations Employee costs were INR 90,000.00 below budget, favorable, fully explained by two warehouse supervisors moving to the Singapore Sales cost centre."
-        },
-        {
-          "line_id": "L05",
-          "commentary": "India Corporate Consulting was INR 75,000.00 above budget, unfavorable, fully explained by unbudgeted tax advisory support for the GST audit."
-        },
-        {
-          "line_id": "L07",
-          "commentary": "Australia Operations Distribution was INR 70,000.00 above budget, unfavorable, with no confirmed explanation."
-        },
-        {
-          "line_id": "L08",
-          "commentary": "India Sales Employee costs were INR 60,000.00 above budget, unfavorable, with no confirmed explanation."
-        }
-      ]
-    },
-    "commentary-retry:aac9f170ddf259ebde1548dba4cfd19a41668509a4f3e6cbb8efce5a7736d1f3": {
-      "executive_summary": [
-        "Net profit was INR 210,000.00 below budget, driven by unfavorable variances in India and Australia, partially offset by favorable variances in Singapore and Australia.",
-        "The largest explained drivers were India Operations Distribution (INR 180,000.00 unfavorable) and Australia Sales Employee costs (INR 150,000.00 favorable).",
-        "Unexplained variances total INR 515,000.00, with India Distribution and Australia Operations Distribution remaining unresolved."
-      ],
-      "lines": [
-        {
-          "line_id": "L01",
-          "commentary": "India Operations Distribution was INR 240,000.00 above budget, with INR 180,000.00 explained by urgent air freight for festive-season stock and INR 60,000.00 unexplained."
-        },
-        {
-          "line_id": "L02",
-          "commentary": "Australia Sales Employee costs were INR 150,000.00 below budget, fully explained by vacant roles in the Sydney sales team."
-        },
-        {
-          "line_id": "L03",
-          "commentary": "Singapore Operations Employee costs were INR 90,000.00 below budget, fully explained by the transfer of warehouse supervisors to the Sales cost centre."
+          "commentary": "Singapore Operations Employee costs were INR 90,000.00 below budget, fully explained by two warehouse supervisors moving to the Singapore Sales cost centre."
         },
         {
           "line_id": "L05",
@@ -95,44 +66,69 @@
         },
         {
           "line_id": "L07",
-          "commentary": "Australia Operations Distribution was INR 70,000.00 above budget, with conflicting explanations from logistics and commercial teams."
+          "commentary": "Australia Operations Distribution was INR 70,000.00 above budget, with no confirmed explanation."
         },
         {
           "line_id": "L08",
           "commentary": "India Sales Employee costs were INR 60,000.00 above budget, with no confirmed explanation."
+        },
+        {
+          "line_id": "L14",
+          "commentary": "India Corporate Recruitment was INR 15,000.00 below budget, fully explained by a refund of the July placement fee after a candidate withdrew."
         }
       ]
     },
-    "deck:aac9f170ddf259ebde1548dba4cfd19a41668509a4f3e6cbb8efce5a7736d1f3": {
+    "commentary-retry:0d91a241de317a5b20d26fa61755810c9122d777d3bb9321589e33a06ee70c7d": {
+      "executive_summary": [
+        "Net profit was INR 195,000.00 below budget, driven by unfavorable variances in India and Australia, partially offset by favorable variances in Singapore and India.",
+        "The largest explained drivers were India's Distribution costs (INR 180,000.00 unfavorable) and Australia's Employee costs (INR 150,000.00 favorable).",
+        "Unexplained variances total INR 515,000.00, with the largest offset being India's Distribution line, which hides INR 80,000.00."
+      ],
+      "lines": [
+        {
+          "line_id": "L01",
+          "commentary": "India Operations Distribution was INR 240,000.00 above budget, with INR 180,000.00 explained by urgent air freight for festive-season stock. The remaining INR 60,000.00 remains unexplained."
+        },
+        {
+          "line_id": "L02",
+          "commentary": "Australia Sales Employee costs were INR 150,000.00 below budget, fully explained by two vacant roles in the Sydney sales team."
+        },
+        {
+          "line_id": "L03",
+          "commentary": "Singapore Operations Employee costs were INR 90,000.00 below budget, fully explained by two warehouse supervisors moving to the Singapore Sales cost centre."
+        },
+        {
+          "line_id": "L05",
+          "commentary": "India Corporate Consulting was INR 75,000.00 above budget, fully explained by unbudgeted tax advisory support for the GST audit."
+        },
+        {
+          "line_id": "L07",
+          "commentary": "Australia Operations Distribution was INR 70,000.00 above budget, with no confirmed explanation. Logistics and commercial teams provided conflicting reasons for the variance."
+        },
+        {
+          "line_id": "L08",
+          "commentary": "India Sales Employee costs were INR 60,000.00 above budget, with no confirmed explanation. Higher costs were cited, but no resolution has been reached."
+        },
+        {
+          "line_id": "L14",
+          "commentary": "India Corporate Recruitment was INR 15,000.00 below budget, fully explained by an agency credit note for a withdrawn candidate. The actual is a negative balance of INR −5,000.00."
+        }
+      ]
+    },
+    "deck:0d91a241de317a5b20d26fa61755810c9122d777d3bb9321589e33a06ee70c7d": {
       "headlines": {
-        "summary": "Net profit INR 210,000 below budget (unfavorable), 8.5% variance.",
-        "bridge": "EBITDA INR 280,000 below plan (unfavorable), explained 49%.",
+        "summary": "Net profit INR 195,000 below budget (unfavorable), 7.9% variance.",
+        "bridge": "EBITDA INR 265,000 below plan (unfavorable), driven by cost of goods sold.",
         "top": "India | Distribution: INR 240,000 unfavorable; Australia | Employee costs: INR 150,000 favorable.",
         "heatmap": "India | Distribution and Australia | Employee costs show largest variances.",
         "offsets": "India | Distribution: net INR 200,000, gross INR 280,000; Singapore | Employee costs: net INR 0, gross INR 180,000.",
         "owners": "Priya Nair: 3 line(s), INR 170,000 open; Arjun Mehta: 2 line(s), INR 80,000 open.",
-        "outlook": "Recurring items INR 720,000 above plan for full year; unexplained variance not projected."
+        "outlook": "Recurring items INR 720,000 above plan; unexplained variance not projected."
       },
       "summary": [
-        "Net profit INR 210,000 below budget (unfavorable), 8.5% variance.",
-        "EBITDA INR 280,000 below plan (unfavorable), explained 49%.",
-        "India | Distribution and Australia | Employee costs show largest variances."
-      ]
-    },
-    "deck-retry:aac9f170ddf259ebde1548dba4cfd19a41668509a4f3e6cbb8efce5a7736d1f3": {
-      "headlines": {
-        "summary": "Net profit INR 210,000 below budget (unfavorable), 8.5% variance.",
-        "bridge": "Product sales adds INR 500,000 to EBITDA (favorable); Cost of goods sold takes INR 400,000 off EBITDA (unfavorable).",
-        "top": "India | Distribution: INR 240,000 unfavorable; Australia | Employee costs: INR 150,000 favorable.",
-        "heatmap": "India | Distribution has largest unfavorable variance; Singapore | Employee costs has largest favorable variance.",
-        "offsets": "India | Distribution: net INR 200,000, gross INR 280,000; Singapore | Employee costs: net INR 0, gross INR 180,000.",
-        "owners": "Priya Nair: 3 line(s), INR 170,000 open; Arjun Mehta: 2 line(s), INR 80,000 open.",
-        "outlook": "Recurring items will add INR 720,000 above plan for full year; unexplained variance not projected."
-      },
-      "summary": [
-        "Net profit INR 210,000 below budget (unfavorable), 8.5% variance.",
-        "EBITDA INR 280,000 below plan (unfavorable), 6.2% variance.",
-        "Sales INR 500,000 above plan (favorable), 1.7% variance."
+        "Net profit INR 195,000 below budget (unfavorable), 7.9% variance.",
+        "EBITDA INR 265,000 below plan (unfavorable), driven by cost of goods sold.",
+        "India | Distribution shows largest unfavorable variance of INR 240,000."
       ]
     }
   }

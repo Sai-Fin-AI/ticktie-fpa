@@ -9,13 +9,14 @@ LINE, TOTAL = (D('25000'), D('10')), (D('50000'), D('5'))
 class FinanceTests(unittest.TestCase):
     def test_sample_control_totals(self):
         rows = load_csv(sample_csv('account'))
-        self.assertEqual(len(rows), 15)
-        self.assertEqual(sum(r['budget'] for r in rows), D('12000000'))
-        self.assertEqual(sum(r['actual'] for r in rows), D('12380000'))
-        self.assertEqual(sum(r['forecast'] for r in rows), D('12190000'))
+        self.assertEqual(len(rows), 16)
+        self.assertEqual(sum(r['budget'] for r in rows), D('12010000'))
+        self.assertEqual(sum(r['actual'] for r in rows), D('12375000'))
+        self.assertEqual(sum(r['forecast'] for r in rows), D('12192500'))
         results = analyze(rows)
-        self.assertEqual(sum(r['variance'] for r in results), D('380000'))
-        self.assertEqual(sum(r['material'] for r in results), 9)
+        self.assertEqual(sum(r['variance'] for r in results), D('365000'))
+        self.assertEqual(sum(r['material'] for r in results), 9)  # thresholds only
+        self.assertEqual(sum(r['material'] for r in review_lines(rows, 'budget', (D(50000), D(5)))), 10)  # + negative
 
     def test_zero_baseline_and_zero_movement(self):
         result = compare(D('75000'), D('0'))
@@ -31,7 +32,7 @@ class FinanceTests(unittest.TestCase):
 
     def test_invalid_inputs_blocked(self):
         sample = sample_csv('account')
-        for bad in ('', 'NaN', '-1', '1.001', 'Infinity'):
+        for bad in ('', 'NaN', '1.001', 'Infinity', 'abc'):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 load_csv(sample.replace('2100000', bad, 1))
         with self.assertRaises(ValueError):
@@ -43,7 +44,7 @@ class FinanceTests(unittest.TestCase):
 
     def test_forecast_and_commentary(self):
         rows = analyze(load_csv(sample_csv('account')), 'forecast')
-        self.assertEqual(sum(r['variance'] for r in rows), D('190000'))
+        self.assertEqual(sum(r['variance'] for r in rows), D('182500'))
         text = commentary(rows[0], 'forecast')
         self.assertIn('does not establish the cause', text)
 
@@ -56,7 +57,7 @@ class CostCentreTests(unittest.TestCase):
         def totals(rows):
             return {(r['country'], r['account']): (r['actual'], r['budget'], r['forecast'])
                     for r in rows if r['actual'] or r['budget']}
-        self.assertEqual(len(self.data), 23)
+        self.assertEqual(len(self.data), 24)
         self.assertEqual(totals(aggregate(self.data, ())), totals(load_csv(sample_csv('account'))))
         self.assertEqual(self.data.dims, ('cost_center',))
 
@@ -98,10 +99,10 @@ class CostCentreTests(unittest.TestCase):
         results = review_lines(rows, 'budget', LINE, TOTAL)
         india_staff = [r for r in results if r['country'] == 'India' and r['account'] == 'Employee costs']
         self.assertEqual({r['scope'] for r in india_staff}, {'Account total'})
-        self.assertEqual(sum(r['material'] for r in results), 13)
-        self.assertEqual(sum(r['material'] for r in review_lines(rows, 'budget', LINE)), 10)
+        self.assertEqual(sum(r['material'] for r in results), 14)
+        self.assertEqual(sum(r['material'] for r in review_lines(rows, 'budget', LINE)), 11)
         flat = review_lines(aggregate(self.data, ()), 'budget', TOTAL, TOTAL)
-        self.assertEqual(sum(r['material'] for r in flat), 9)
+        self.assertEqual(sum(r['material'] for r in flat), 10)
         self.assertNotIn('Account total', {r['scope'] for r in flat})
 
 

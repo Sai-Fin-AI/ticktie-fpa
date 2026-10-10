@@ -95,14 +95,12 @@ def load_inputs(mode, uploads, gl_map=None):
     specs, data_log, accepted = data_checks(specs, list(gl_map or ()), digest.hexdigest()[:10])
     digest.update(repr(sorted(accepted)).encode())  # accepting a match changes the data
     source = 'upload:' + ','.join(f'{k}={s[3]}' for k, s in specs.items())
-    # Negative amounts pass the conversion; load_csv then refuses them, or, with a GL mapping, allows a credit
-    # GL code and checks the account totals after the roll-up.
     credits = gl_map is not None
     pl_spec = specs.pop('pl', None)
-    pl_text = combined_csv(*pl_spec, country, allow_negative=True) if pl_spec else None
+    pl_text = combined_csv(*pl_spec, country) if pl_spec else None
     if mode == COMBINED:
         headers, rows, roles, name = specs['combined']
-        return {'text': combined_csv(headers, rows, roles, name, country, allow_negative=True), 'pl_text': pl_text,
+        return {'text': combined_csv(headers, rows, roles, name, country), 'pl_text': pl_text,
                 'source': source, 'demo': False, 'attrs': {}, 'report': None, 'has_forecast': True,
                 'fingerprint': digest.hexdigest(), 'data_log': data_log}
     text, attrs, report = separate_csv(specs, country, resolve=gl_resolver(gl_map) if credits else None)

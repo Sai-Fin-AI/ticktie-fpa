@@ -79,8 +79,8 @@ class SeparateFileTests(unittest.TestCase):
         text, attrs, report = separate_csv(self.files())
         self.assertEqual(lines(load_csv(text)), lines(load_csv(sample_csv())))
         totals = {f['kind']: (f['rows'], f['lines'], f['other_months'], f['total']) for f in report['files']}
-        self.assertEqual(totals['actuals'], (46, 23, 0, D('12380000')))
-        self.assertEqual(totals['budget'], (252, 21, 11, D('12000000')))
+        self.assertEqual(totals['actuals'], (48, 24, 0, D('12375000')))
+        self.assertEqual(totals['budget'], (264, 22, 11, D('12010000')))
         self.assertEqual(report['unbudgeted'], ['India | IN-COR | Consulting', 'Australia | AU-COR | Consulting'])
         self.assertEqual(report['unspent'], [])
 
@@ -109,8 +109,9 @@ class SeparateFileTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'no rows for 2026-08'):
             separate_csv(self.files(budget=spec('budget', july.encode(), 'b.csv')))
         credit = sample_actuals_csv() + 'Aug-2026,India,IN-OPS,Warehousing,Reversal,"(900,000)"\n'
-        with self.assertRaisesRegex(ValueError, 'nets to a negative'):
-            separate_csv(self.files(actuals=spec('actuals', credit.encode(), 'a.csv')))
+        text, _, _ = separate_csv(self.files(actuals=spec('actuals', credit.encode(), 'a.csv')))  # a net credit is kept
+        warehousing = next(r for r in load_csv(text) if r['cost_center'] == 'IN-OPS' and r['account'] == 'Warehousing')
+        self.assertEqual(warehousing['actual'], D('-100000'))
         blank = sample_actuals_csv().replace('Aug-2026,India,IN-SAL,Employee costs,Monthly posting,', 'Aug-2026,India,IN-SAL,Employee costs,Monthly posting,,', 1)
         with self.assertRaisesRegex(ValueError, 'row 2'):
             separate_csv(self.files(actuals=spec('actuals', blank.encode(), 'a.csv')))
@@ -128,15 +129,15 @@ class IngestAppTests(unittest.TestCase):
         app.sidebar.file_uploader[0].upload('actuals.csv', sample_actuals_csv().encode(), 'text/csv').run()
         app.sidebar.file_uploader[1].upload('budget.xlsx', sample_budget_xlsx(),
                                     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').run()
-        self.assertEqual(self.metrics(app)['Actual expense · INR'], '12,380,000')
-        self.assertEqual(self.metrics(app)['Budget · INR'], '12,000,000')
+        self.assertEqual(self.metrics(app)['Actual expense · INR'], '12,375,000')
+        self.assertEqual(self.metrics(app)['Budget · INR'], '12,010,000')
         self.assertTrue(any('2 line(s) have actuals but no budget' in x.value for x in app.warning))
         table = next(x.value for x in app.markdown if x.value.startswith('| File |'))
         self.assertEqual(table.count('✅'), 2)
         next(s for s in app.selectbox if s.label == 'Compare actuals against').select('forecast').run()
         self.assertTrue(any('No forecast file' in x.value for x in app.error))
         app.sidebar.file_uploader[2].upload('forecast.csv', sample_forecast_csv().encode(), 'text/csv').run()
-        self.assertEqual(self.metrics(app)['Forecast · INR'], '12,190,000')
+        self.assertEqual(self.metrics(app)['Forecast · INR'], '12,192,500')
 
     def test_dropdown_fixes_an_unrecognised_column(self):
         app = AppTest.from_file(str(APP), default_timeout=30).run()
@@ -144,7 +145,7 @@ class IngestAppTests(unittest.TestCase):
         app.sidebar.file_uploader[0].upload('odd.csv', text.encode(), 'text/csv').run()
         self.assertTrue(any('Choose a column for Actual amount' in x.value for x in app.error))
         next(s for s in app.selectbox if s.label == '“Spend”').select('actual').run()
-        self.assertEqual(self.metrics(app)['Actual expense · INR'], '12,380,000')
+        self.assertEqual(self.metrics(app)['Actual expense · INR'], '12,375,000')
 
 
 if __name__ == '__main__':

@@ -52,8 +52,10 @@ def good_reply(pack):
         'IN-SAL|Employee costs': 'Costs were INR 60,000.00 above budget, part of a wider account movement. '
                                  'The explanation is unconfirmed and INR 60,000.00 remains unexplained.',
         'AU-OPS|Distribution': 'Costs were INR 70,000.00 above budget. The explanations conflict, so INR 70,000.00 remains unexplained.',
-        'IN-COR|Consulting': 'Costs were INR 75,000.00 above budget, fully explained by unbudgeted GST audit support.'}
-    return {'executive_summary': ['Expenses were INR 380,000.00 above budget, an unfavorable outcome.',
+        'IN-COR|Consulting': 'Costs were INR 75,000.00 above budget, fully explained by unbudgeted GST audit support.',
+        'IN-COR|Recruitment': 'Costs were INR 15,000.00 below budget, fully explained by an agency credit note. '
+                              'The actual is a negative balance of INR −5,000.00.'}
+    return {'executive_summary': ['Expenses were INR 365,000.00 above budget, an unfavorable outcome.',
                                   'Singapore Employee costs net INR 0.00 hides INR 180,000.00 of offsetting movements.',
                                   'INR 515,000.00 remains unexplained across 10 open items.'],
             'lines': [{'line_id': i, 'commentary': text[key(l)]} for i, l in material_lines(pack) if l['note']]}
@@ -116,7 +118,7 @@ class InterviewerTests(unittest.TestCase):
         self.assertEqual(found['SG-OPS|Warehousing']['quality'], 'missing')
         self.assertIn('below the line threshold', found['IN-OPS|Employee costs']['questions'][0])
         sent = json.loads(client.calls[0][1])
-        self.assertEqual(len(sent), 6)
+        self.assertEqual(len(sent), 7)
         self.assertIn('cost_centre', sent[0])
         self.assertNotIn('amount_stated', sent[0])
 
@@ -250,7 +252,7 @@ class AIAppTests(unittest.TestCase):
         app = AppTest.from_file(str(APP), default_timeout=30).run()
         button = lambda label: next(b for b in app.button if b.label == label)
         button('Load demo explanations').click().run()
-        self.assertTrue(any('Loaded 6 demo explanations' in x.value for x in app.success))
+        self.assertTrue(any('Loaded 7 demo explanations' in x.value for x in app.success))
         button('Ask the interviewer').click().run()
         self.assertFalse(app.exception)
         self.assertTrue(any('vague wording' in x.value for x in app.markdown))
@@ -272,20 +274,20 @@ class ReportTests(unittest.TestCase):
         page = write_commentary(self.pack, FakeClient(good_reply(self.pack)))['html']
         for expected in ('▲ Unfavorable', '▼ Favorable', '✅ Confirmed', '🟡 Unconfirmed', '🔴 Conflicting',
                          '⚪ Explanation pending', '① One-off', 'Explained INR 180,000.00 (75%)', 'Fully explained',
-                         'Not counted until resolved', 'Open items (10)', '☐', '✔ Tick-and-tie passed', 'INR 2,265,000',
+                         'Not counted until resolved', 'Open items (10)', '☐', '✔ Tick-and-tie passed', 'INR 2,270,000', '⚠ Negative balance',
                          'Profit and loss', 'Gross margin', 'EBITDA margin',
                          'Where the variance sits', '👤 Arjun Mehta', '⇅ Offsetting movements',
                          'Σ Part of a material account total', 'offsets hide INR 80,000.00'):
             self.assertIn(expected, page)
-        self.assertEqual(page.count('border-left:5px solid'), 13)
+        self.assertEqual(page.count('border-left:5px solid'), 14)
 
     def test_heatmap_cells_totals_and_filter(self):
         from report_html import heatmap_html
         grid = heatmap_html(self.pack)
         self.assertIn('+240k', grid)
         self.assertIn('−90k', grid)
-        self.assertEqual(grid.count('outline:2px solid'), 13)
-        self.assertIn('−210k', grid)  # P&L demo: the grand net is profit impact (net profit 210k below budget)
+        self.assertEqual(grid.count('outline:2px solid'), 14)
+        self.assertIn('−195k', grid)  # P&L demo: the grand net is profit impact (net profit 195k below budget)
         india = heatmap_html(self.pack, 'India')
         self.assertNotIn('Singapore', india)
         self.assertIn('IN-OPS India Operations', india)

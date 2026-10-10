@@ -180,9 +180,9 @@ def _write(rows, dims, attrs):
     return out.getvalue()
 
 
-def combined_csv(headers, rows, roles, name, country='', currency='INR', allow_negative=False):
+def combined_csv(headers, rows, roles, name, country='', currency='INR', allow_negative=True):
     """One file with actual, budget and forecast columns, rewritten in the standard layout.
-    allow_negative: GL-level data, where a credit GL code may be negative."""
+    Negative amounts (credits, reversals) are kept; the review flags lines that net below zero."""
     dims, attrs = _dims(headers, roles), [a for a in CC_ATTRS + ('pl_line',) if a in roles]
     extra_cols = {h: _column(h) for h, r in zip(headers, roles) if r == EXTRA}
     out = []
@@ -239,8 +239,9 @@ def _single(kind, headers, rows, roles, name, country, currency):
 def separate_csv(files, country='', currency='INR', resolve=None):
     """files: {'actuals': (headers, rows, roles, name), 'budget': ..., optional 'forecast': ...}.
 
-    resolve: GL code -> reporting account, when a GL mapping is used. Lines then stay at GL code level (a
-    credit GL may be negative), but a line counts as budgeted when its account has a budget in any GL code,
+    Postings are netted per line; a line may net below zero (a credit note larger than the spend).
+    resolve: GL code -> reporting account, when a GL mapping is used. Lines then stay at GL code level,
+    but a line counts as budgeted when its account has a budget in any GL code,
     so a budget kept at account level matches actuals posted to GL codes.
     Returns (standard CSV text, cost centre details from the actuals, reconciliation report).
     """
@@ -267,14 +268,9 @@ def separate_csv(files, country='', currency='INR', resolve=None):
             slot[kind] = slot.get(kind, Decimal(0)) + amount
     rows, found = [], {}
     for (ctry, dims, account, ccy), slot in merged.items():
-        label = ' | '.join((ctry, *dims, account))
         found.setdefault(' | '.join((ctry, *dims, resolve(account) if resolve else account)), set()).update(slot)
         actual, budget = slot.get('actuals', Decimal(0)), slot.get('budget', Decimal(0))
         forecast = slot.get('forecast', Decimal(0)) if 'forecast' in parsed else budget
-        for field, value in (('actual', actual), ('budget', budget), ('forecast', forecast)):
-            if value < 0 and not resolve:  # with GL codes, the account total is checked after the roll-up
-                raise ValueError(f'{label}: {field} nets to a negative INR {value:,.2f}. Credits larger than spend are '
-                                 'not supported for expense lines.')
         rows.append((month, ctry, *dims, account, ccy, actual, budget, forecast))
     report.update(unbudgeted=[l for l, s in found.items() if 'budget' not in s],
                   unspent=[l for l, s in found.items() if 'actuals' not in s])

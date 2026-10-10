@@ -38,14 +38,14 @@ def slide_texts(pptx):
 
 
 def good_headlines():
-    return {'headlines': {'summary': 'Expenses INR 380,000 above budget; 49% explained',
+    return {'headlines': {'summary': 'Expenses INR 365,000 above budget; 50% explained',
                           'bridge': 'Distribution adds INR 340,000 to the budget-to-actual bridge',
                           'top': 'India Operations Distribution leads at INR 240,000',
                           'heatmap': 'Overspend concentrates in Distribution and Consulting',
                           'offsets': 'Singapore Employee costs nets to INR 0 but moves INR 180,000 gross',
                           'owners': 'Priya Nair holds INR 170,000 of open variance',
                           'outlook': 'Recurring INR 90,000 needs a forecast update'},
-            'summary': ['Actual INR 12,380,000 vs budget INR 12,000,000.', 'INR 515,000 remains unexplained.',
+            'summary': ['Actual INR 12,375,000 vs budget INR 12,010,000.', 'INR 515,000 remains unexplained.',
                         'Distribution is the largest account movement.']}
 
 
@@ -56,12 +56,13 @@ class DeckFigureTests(unittest.TestCase):
     def test_derived_figures_reconcile(self):
         steps = dict(account_steps(self.pack))  # P&L demo: the default bridge is EBITDA, in profit terms
         self.assertEqual(steps, {'Product sales': D('500000'), 'Cost of goods sold': D('-400000'), 'Distribution': D('-340000'),
-                                 'Consulting': D('-130000'), 'Employee costs': D('50000'), 'Warehousing': D('40000')})
-        self.assertEqual(sum(steps.values()), D('-280000'))
+                                 'Consulting': D('-130000'), 'Employee costs': D('50000'), 'Warehousing': D('40000'),
+                                 'Recruitment': D('15000')})
+        self.assertEqual(sum(steps.values()), D('-265000'))
         split = timing_split(self.pack)
         self.assertEqual((split['One-off'], split['Recurring'], split['Timing difference'], split['Unexplained']),
-                         (D('255000'), D('90000'), D('150000'), D('515000')))
-        self.assertEqual(sum(v for k, v in split.items() if k != 'Unexplained'), D('495000'))
+                         (D('270000'), D('90000'), D('150000'), D('515000')))
+        self.assertEqual(sum(v for k, v in split.items() if k != 'Unexplained'), D('510000'))
         self.assertEqual(owner_table(self.pack)[0][0], 'Priya Nair')
         self.assertEqual(owner_table(self.pack)[0][1]['open'], D('170000'))
 
@@ -70,7 +71,7 @@ class DeckFigureTests(unittest.TestCase):
         extra = derived_records(self.pack)
         self.assertTrue(misattributed_figures('India Distribution is INR 340,000 above budget.', self.pack, extra))
         for ok in ('Distribution adds INR 340,000', 'India Operations Distribution leads at INR 240,000',
-                   'Priya Nair holds INR 170,000', 'Recurring INR 90,000', 'Total INR 380,000 above budget'):
+                   'Priya Nair holds INR 170,000', 'Recurring INR 90,000', 'Total INR 365,000 above budget'):
             with self.subTest(ok=ok):
                 self.assertEqual(misattributed_figures(ok, self.pack, extra), [])
 
@@ -88,26 +89,26 @@ class DeckBuildTests(unittest.TestCase):
         self.assertEqual(result['slides'], 11)
         self.assertIn('P&L variance review\nAugust 2026', texts[0])
         self.assertIn(self.pack['content_hash'][:12], texts[0])
-        self.assertIn('Net profit INR 210,000 below budget; EBITDA INR 280,000 below', texts[2])
+        self.assertIn('Net profit INR 195,000 below budget; EBITDA INR 265,000 below', texts[2])
         self.assertIn('GROSS MARGIN', texts[2])
         self.assertIn('Distribution adds INR 340,000', texts[3])
         self.assertIn('EBITDA BRIDGE: BUDGET TO ACTUAL', texts[3])
         charts = [s for s in deck.slides[3].shapes if s.has_chart]
         self.assertEqual(list(charts[0].chart.plots[0].categories),
                          ['Budget', 'Product sales', 'Cost of goods sold', 'Distribution', 'Consulting', 'Employee costs',
-                          'Warehousing', 'Actual'])
+                          'Warehousing', 'Recruitment', 'Actual'])
         self.assertIn('Arjun Mehta', texts[4])
         self.assertIn('+240k', texts[5])
         self.assertIn('Singapore | Employee costs', texts[6])
         self.assertIn('Priya Nair', texts[7])
         self.assertIn('Recurring INR 90,000', texts[8])
-        self.assertIn('Lines needing explanation (1–12 of 13)', texts[9])
-        self.assertIn('(13–13 of 13)', texts[10])
+        self.assertIn('Lines needing explanation (1–12 of 14)', texts[9])
+        self.assertIn('(13–14 of 14)', texts[10])
         self.assertEqual([k for k, _ in result['outline']][:4], ['Title', 'Executive summary', 'Profit and loss', 'Bridge'])
 
     def test_bridge_follows_the_choice_on_screen(self):
-        for measure, first, cats in (('Sales', 'Product sales', 3), ('Costs', 'Cost of goods sold', 8),
-                                     ('Gross margin', 'Product sales', 4), ('Net profit', 'Product sales', 9)):
+        for measure, first, cats in (('Sales', 'Product sales', 3), ('Costs', 'Cost of goods sold', 9),
+                                     ('Gross margin', 'Product sales', 4), ('Net profit', 'Product sales', 10)):
             with self.subTest(measure=measure):
                 result = make_deck(self.pack, None, bridge=measure)
                 deck, texts = slide_texts(result['pptx'])

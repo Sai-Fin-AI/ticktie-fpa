@@ -40,7 +40,7 @@ class NumberStyleTests(unittest.TestCase):
         result = make_deck(pack, None, 'Indian (lakh / crore)')
         self.assertEqual(result['issues'], [])
         _, texts = slide_texts(result['pptx'])
-        self.assertIn('−2,10,000', texts[0])  # net profit vs budget
+        self.assertIn('−1,95,000', texts[0])  # net profit vs budget
         self.assertIn('3,05,00,000', texts[1])  # sales tile
         self.assertIn('+2.40 L', texts[5])
         self.assertIn('INR crores', texts[3])
@@ -58,11 +58,11 @@ class AppSettingsTests(unittest.TestCase):
         self.assertIn('FY2026-27, 7 months left', caption())
         next(s for s in app.selectbox if s.label == 'Number style').set_value('Indian (lakh / crore)').run()
         self.assertEqual(next(m for m in app.metric if m.label == 'Sales · INR').value, '3,05,00,000')
-        self.assertIn('INR +4,65,000', caption())  # P&L review: profit terms, + helps profit
+        self.assertIn('INR +4,80,000', caption())  # P&L review: profit terms, + helps profit
         next(s for s in app.selectbox if s.label == 'Financial year starts in').set_value('January').run()
         self.assertFalse(app.exception)
         self.assertIn('FY2026, 4 months left', caption())
-        self.assertEqual([t.label for t in app.tabs][:3], ['📝 One line at a time', '📋 All lines (13, all countries)',
+        self.assertEqual([t.label for t in app.tabs][:3], ['📝 One line at a time', '📋 All lines (14, all countries)',
                                                          '📤 Excel round-trip'])
 
 
@@ -73,14 +73,14 @@ class FullYearTests(unittest.TestCase):
         # A P&L review signs the outlook in profit terms: the one-off overspend costs profit, the recurring saving adds to it.
         self.assertEqual(outlook['terms'], 'profit')
         self.assertEqual({k: D(outlook[k]) for k in ('one_off', 'recurring_month', 'recurring_fy', 'timing', 'fy_effect')},
-                         {'one_off': D(-255000), 'recurring_month': D(90000), 'recurring_fy': D(720000),
-                          'timing': D(150000), 'fy_effect': D(465000)})
+                         {'one_off': D(-240000), 'recurring_month': D(90000), 'recurring_fy': D(720000),
+                          'timing': D(150000), 'fy_effect': D(480000)})
 
     def test_expense_review_keeps_cost_terms(self):
         rows = demo_rows()
         expense_only = [r for r in rows if r['pl_line'] == 'Operating expenses']
         outlook = build_pack(expense_only, 'budget', *LINE_THRESHOLDS, demo_notes(rows), TOTAL_THRESHOLDS)['outlook']
-        self.assertEqual((outlook['terms'], D(outlook['fy_effect'])), ('cost', D(-465000)))
+        self.assertEqual((outlook['terms'], D(outlook['fy_effect'])), ('cost', D(-480000)))
 
     def test_calendar_year_and_last_month(self):
         rows = demo_rows()
@@ -95,12 +95,12 @@ class FullYearTests(unittest.TestCase):
         _, texts = slide_texts(make_deck(pack, None)['pptx'])
         outlook_slide = texts[8]
         self.assertIn('FULL-YEAR VIEW · FY2026-27 · 7 MONTHS LEFT', outlook_slide)
-        self.assertIn('+465,000', outlook_slide)
-        self.assertIn('Confirmed items add INR 465,000 to FY2026-27 profit', outlook_slide)
+        self.assertIn('+480,000', outlook_slide)
+        self.assertIn('Confirmed items add INR 480,000 to FY2026-27 profit', outlook_slide)
         self.assertIn('+ = helps profit (favorable)', outlook_slide)
         summary = load_workbook(io.BytesIO(pack_excel(pack)))['Summary']
         values = {row[0]: row[1] for row in summary.iter_rows(values_only=True)}
-        self.assertEqual(values['Full-year view: effect of confirmed explanations'], 465000)
+        self.assertEqual(values['Full-year view: effect of confirmed explanations'], 480000)
         self.assertIn('P&L', load_workbook(io.BytesIO(pack_excel(pack))).sheetnames)
         self.assertEqual(misattributed_figures('Recurring items add INR 720,000 for the full year.', pack), [])
 
@@ -119,7 +119,7 @@ class LineNamingTests(unittest.TestCase):
                 self.assertEqual(account_total_confusion(ok, self.line, self.pack), [])
 
     def test_account_total_figure_must_be_the_total(self):
-        self.assertTrue(misattributed_figures('India | Distribution was INR 240,000.00 above budget.', self.pack))
+        self.assertTrue(misattributed_figures('India | Distribution was INR 60,000.00 above budget.', self.pack))  # a cost centre figure
         self.assertEqual(misattributed_figures('India | Distribution was INR 200,000.00 above budget.', self.pack), [])
         self.assertEqual(misattributed_figures('India Operations Distribution was INR 240,000.00 above budget.', self.pack), [])
 
@@ -130,11 +130,11 @@ class LineNamingTests(unittest.TestCase):
                    'Australia Sales Employee costs (INR 180,000.00 favorable).')
         self.assertEqual(misattributed_figures(right, self.pack), [])
         self.assertEqual(len(misattributed_figures(swapped, self.pack)), 2)
-        self.assertEqual(misattributed_figures('Of the INR 210,000 net, India Operations Distribution moved most.', self.pack), [])
-        # in a P&L review 380,000 is operating expenses, not the net: it must be named as such
-        self.assertTrue(misattributed_figures('Of the INR 380,000 net, India Operations Distribution moved most.', self.pack))
-        self.assertEqual(misattributed_figures('Operating expenses were INR 380,000 above budget.', self.pack), [])
-        self.assertEqual(misattributed_figures('EBITDA fell INR 280,000; Gross margin fell 0.6 pts.', self.pack), [])
+        self.assertEqual(misattributed_figures('Of the INR 195,000 net, India Operations Distribution moved most.', self.pack), [])
+        # in a P&L review 365,000 is operating expenses, not the net: it must be named as such
+        self.assertTrue(misattributed_figures('Of the INR 365,000 net, India Operations Distribution moved most.', self.pack))
+        self.assertEqual(misattributed_figures('Operating expenses were INR 365,000 above budget.', self.pack), [])
+        self.assertEqual(misattributed_figures('EBITDA fell INR 265,000; Gross margin fell 0.6 pts.', self.pack), [])
 
     def test_account_level_data_is_unaffected(self):
         pack = lock_pack(build_pack(load_csv(sample_csv('account')), 'budget', D('50000'), D('5'), {}))

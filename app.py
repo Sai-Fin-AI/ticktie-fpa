@@ -3,7 +3,7 @@ from decimal import Decimal
 import hashlib
 import streamlit as st
 import fmt
-from finance import (CC, SALES, UnmappedGL, accounts_in, aggregate, apply_gl_map, apply_master, bridge, bridge_options, compare,
+from finance import (CC, NEGATIVE_NOTE, SALES, UnmappedGL, accounts_in, aggregate, apply_gl_map, apply_master, bridge, bridge_options, compare,
                      dim_label, line_label, load_cc_master, load_csv, load_gl_map, looks_like_gl_codes, merge_datasets,
                      review_lines, sample_cc_master_csv, sample_gl_map_csv, statement)
 from ingest import table_csv
@@ -85,10 +85,9 @@ try:
                 del st.session_state[key]
         if had_notes:
             st.warning('The input changed. Previous business explanations were cleared; enter notes for this data.')
-    credits = gl_map is not None  # a credit GL code may be negative; its account total may not
-    dataset, checks = load_csv(inputs['text'], allow_negative=credits), []
+    dataset, checks = load_csv(inputs['text']), []
     if inputs.get('pl_text'):  # sales and other P&L lines: accounts the name does not place are read as sales
-        dataset = merge_datasets(dataset, load_csv(inputs['pl_text'], default_line=SALES, allow_negative=credits))
+        dataset = merge_datasets(dataset, load_csv(inputs['pl_text'], default_line=SALES))
     for code, details in inputs['attrs'].items():  # cost centre details found in a separate actuals file
         if code in dataset.attrs:
             dataset.attrs[code].update(details)
@@ -108,7 +107,7 @@ except UnmappedGL as error:
     st.stop()
 except (ValueError, UnicodeError) as error:
     st.error(str(error))
-    if inputs and gl_map is None:  # for example a credit GL code stopped a file that needs a GL mapping
+    if inputs and gl_map is None:  # a file that posts to GL codes may need a GL mapping to make sense
         codes = accounts_in(inputs['text'] + '\n'.join((inputs.get('pl_text') or '').splitlines()[1:]))
         if looks_like_gl_codes(codes):
             gl_template_hint(codes)
@@ -208,8 +207,8 @@ if pl:
                    help=(f"{margin['actual_pct']:.1f}% margin vs {margin['baseline_pct']:.1f}% in the {baseline}. " if margin else '')
                         + 'Green arrow up = helps profit; red arrow down = hurts it.')
 else:
-    c1.metric('Actual expense · INR', fmt.group(actual))
-    c2.metric(f'{baseline.title()} · INR', fmt.group(plan))
+    c1.metric('Actual expense · INR', fmt.balance(actual))
+    c2.metric(f'{baseline.title()} · INR', fmt.balance(plan))
     c3.metric('Net variance · INR', fmt.signed(total['variance']),
               delta=f"{total['pct']:+.1f}% vs {baseline}" if total['pct'] is not None else None, delta_color='inverse',
               help='Red arrow up = spend above plan (unfavorable); green arrow down = below plan.')
@@ -255,6 +254,7 @@ with st.container(border=True, key='card_2'):
     choices = ['Lines'] + (['GL codes'] if gl_info else []) + [label for _, label, _ in views]
     view = st.radio('View by', choices, horizontal=True) if len(choices) > 1 else 'Lines'
     has_owner = any(r.get('owner') for r in result)
+    any_negative = any(r['negative'] for r in result)
     if view == 'GL codes':
         gl_codes_view(dataset, grain, baseline, in_view)
     elif view == 'Lines':
@@ -263,7 +263,9 @@ with st.container(border=True, key='card_2'):
                     'Actual INR': float(r['actual']), f'{baseline.title()} INR': float(r[baseline]),
                     'Variance INR': float(r['variance']),
                     'Variance %': f"{r['pct']:.1f}%" if r['pct'] is not None else 'N/A', 'Outcome': r['direction'],
-                    'Material': ('Yes (account total)' if r['scope'] == 'Account total' else 'Yes') if r['material'] else 'No'}
+                    'Material': f"Yes ({r['scope'].lower()})" if r['scope'] in ('Account total', 'Negative balance')
+                                else 'Yes' if r['material'] else 'No',
+                    **({'Flag': '⚠️ Negative balance' if r['negative'] else ''} if any_negative else {})}
                    for r in result]
     else:
         name = next(v for v, label, _ in views if label == view)
@@ -301,7 +303,8 @@ if material:
     with one:
         chosen = st.selectbox('Account to explain', list(options),
                               format_func=lambda k: f"{line_label(options[k])} | {options[k]['month']} | vs {baseline}"
-                                                    + (' · part of a material account total' if options[k]['scope'] == 'Account total' else ''),
+                                                    + (' · part of a material account total' if options[k]['scope'] == 'Account total' else '')
+                                                    + (' · ⚠️ negative balance' if options[k]['negative'] else ''),
                               key='evidence_widget_account_' + baseline)
         target = options[chosen]
         saved = st.session_state.business_notes.get(chosen, {})
@@ -309,6 +312,10 @@ if material:
         who = f" Owner: {target['owner']}." if target.get('owner') else ''
         st.caption(f"Variance to explain: INR {abs(target['variance']):,.2f} ({target['direction'].lower()}).{who} "
                    'Enter a positive amount, no larger than this variance.')
+        if target['negative']:
+            which = 'actual' if target['actual'] < 0 else baseline
+            st.warning(f"⚠️ Negative balance: the {which} is INR {target[which]:,.2f}. This is {NEGATIVE_NOTE}. "
+                       'It needs an explanation whatever its size, and cannot be marked Recurring.')
         if gl_info:
             gl_breakdown(dataset, target, baseline)
         # Seed the widgets from the saved note through session state: a keyed widget keeps its old browser value
@@ -389,11 +396,13 @@ else:
              'The Excel pack, CFO commentary and CFO PowerPoint deck appear here once locked.')
 
 with st.expander('Finance rules and limitations'):
-    st.write('Variance = actual minus comparison value. Positive expense variances are unfavorable. '
-             'Zero baselines have no percentage variance. Missing, duplicate, invalid or negative amounts '
-             'stop the analysis. Values are INR with at most two decimal places. '
-             'This version accepts one month and expense accounts only; revenue, credits, '
-             'FX conversion and automatic driver attribution are not included. '
+    st.write('Variance = actual minus comparison value. Expense above plan is unfavorable; sales above plan is favorable. '
+             'Percentages divide by the size of the comparison value; zero baselines have no percentage. Missing, '
+             'duplicate or invalid amounts stop the analysis. Values are INR with at most two decimal places. '
+             'Negative amounts (credit notes, reversals) are accepted. A line that nets below zero is flagged as a '
+             'negative balance, always needs an explanation whatever its size, and cannot be marked Recurring, so a '
+             'reversal is never rolled forward into the full-year view. '
+             'This version accepts one month; FX conversion and automatic driver attribution are not included. '
              'AI never calculates or infers causes; it rewords reviewer explanations and its figures are checked.')
     st.write('Lines are analysed at the level chosen under "Analyse by"; removing a level adds its rows up. '
              'When lines are finer than country × account, an account total that is material while no single line is '
@@ -403,5 +412,4 @@ with st.expander('Finance rules and limitations'):
     st.write('With a GL mapping, the account column of the data holds GL codes and each GL code rolls up to its reporting '
              'account; the analysis runs on accounts and the GL codes stay visible for drill-down. A GL code missing from '
              'the mapping stops the analysis, so nothing is dropped silently. A value that already is a reporting account '
-             '(for example a budget kept at account level) is kept as it is. A credit GL code may be negative; an account '
-             'that nets to a negative amount stops the analysis.')
+             '(for example a budget kept at account level) is kept as it is. A credit GL code may be negative.')

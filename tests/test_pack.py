@@ -32,11 +32,12 @@ class PackTests(unittest.TestCase):
     def test_totals_reconcile_to_engine(self):
         pack = build_pack(self.rows, 'budget', AMOUNT, PCT, {})
         self.assertEqual((pack['totals']['actual'], pack['totals']['baseline'], pack['totals']['variance']),
-                         ('12380000', '12000000', '380000'))
-        self.assertEqual((pack['summary']['rows'], pack['summary']['material'], pack['scope']), (15, 9, 'All countries'))
+                         ('12375000', '12010000', '365000'))
+        self.assertEqual((pack['summary']['rows'], pack['summary']['material'], pack['scope']), (16, 10, 'All countries'))
         material = [r for r in analyze(self.rows, 'budget') if r['material']]
-        self.assertEqual(D(pack['summary']['unexplained']), sum(abs(r['variance']) for r in material))
-        self.assertEqual(pack['summary']['open_items'], 9)
+        # plus the Recruitment line: below the thresholds, but a negative balance always needs an explanation
+        self.assertEqual(D(pack['summary']['unexplained']), sum(abs(r['variance']) for r in material) + D('15000'))
+        self.assertEqual(pack['summary']['open_items'], 10)
 
     def test_only_confirmed_full_notes_close_items(self):
         empty = build_pack(self.rows, 'forecast', AMOUNT, PCT, {})['summary']
@@ -69,9 +70,9 @@ class PackTests(unittest.TestCase):
         book = load_workbook(io.BytesIO(pack_excel(pack)))
         self.assertEqual(book.sheetnames, ['Summary', 'Variances', 'Explanations', 'Open items'])
         summary = {row[0]: row[1] for row in book['Summary'].iter_rows(min_row=2, values_only=True)}
-        self.assertEqual(summary['Net variance'], 190000)
+        self.assertEqual(summary['Net variance'], 182500)
         self.assertEqual(summary['Pack fingerprint'], pack['content_hash'])
-        self.assertEqual(book['Variances'].max_row, 16)
+        self.assertEqual(book['Variances'].max_row, 17)
         explained = [r for r in book['Explanations'].iter_rows(min_row=2, values_only=True) if r[1] == 'Distribution' and r[0] == 'India']
         self.assertEqual((explained[0][10], explained[0][11]), (60000, 40000))
         opens = [r for r in book['Open items'].iter_rows(min_row=2, values_only=True) if r[0] == 'India' and r[1] == 'Distribution']
@@ -111,7 +112,7 @@ class CostCentrePackTests(unittest.TestCase):
         self.assertEqual(accounts['India | Employee costs']['flags'], ['Material in total only'])
         self.assertEqual(set(self.pack['rollups']), {'account', 'cost_center', 'function'})
         self.assertEqual(self.pack['grain'], ['cost_center'])
-        self.assertEqual(self.pack['totals']['variance'], '380000')
+        self.assertEqual(self.pack['totals']['variance'], '365000')
         line = next(l for l in self.pack['lines'] if l['dims'] == {'cost_center': 'IN-OPS'} and l['account'] == 'Distribution')
         self.assertEqual((line['label'], line['attrs']['owner']), ('India | IN-OPS India Operations | Distribution', 'Arjun Mehta'))
 
@@ -121,7 +122,7 @@ class CostCentrePackTests(unittest.TestCase):
                                            'By account', 'By cost centre', 'By function'])
         header = [c.value for c in book['Variances'][1]]
         self.assertEqual(header[:4], ['Country', 'Cost centre', 'Account', 'Owner'])
-        self.assertEqual(book['Variances'].max_row, 24)
+        self.assertEqual(book['Variances'].max_row, 25)
         flags = {r[0]: r[9] for r in book['By account'].iter_rows(min_row=2, values_only=True)}
         self.assertEqual(flags['India | Distribution'], 'Offsetting movements')
 
@@ -144,7 +145,7 @@ class PackAppTests(unittest.TestCase):
         self.assertIn('Not locked yet', ''.join(x.value for x in app.markdown))
         self.widget(app.button, 'Lock review pack').click().run()
         self.assertFalse(app.exception)
-        self.assertTrue(any('Pack locked' in x.value and '13 material movements' in x.value for x in app.success))
+        self.assertTrue(any('Pack locked' in x.value and '14 material movements' in x.value for x in app.success))
         self.widget(app.number_input, 'Minimum variance (INR)').set_value(60000).run()
         self.assertTrue(any('changed since the pack was locked' in x.value for x in app.warning))
         self.widget(app.button, 'Lock review pack').click().run()

@@ -40,6 +40,9 @@ DEMO_NOTES = [
      'Fictional carrier notice and store opening plan', '70000', 'Conflicting explanations', 'Recurring', ''),
     ('IN-COR', 'Consulting', 'Unbudgeted tax advisory support for the GST audit.', 'Fictional engagement letter EL-22',
      '75000', 'Confirmed by reviewer', 'One-off', 'Add audit support to next year\'s budget.'),
+    ('IN-COR', 'Recruitment', 'Agency credit note: the July placement fee was refunded after the candidate withdrew.',
+     'Fictional agency credit note CN-0731', '15000', 'Confirmed by reviewer', 'One-off',
+     'Restart the search in September; the role is still open.'),
 ]
 
 

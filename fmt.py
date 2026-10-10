@@ -34,6 +34,12 @@ def group(value, decimals=0):
     return whole + ('.' + fraction if fraction else '')
 
 
+def balance(value, decimals=0):
+    """A balance (an actual, a budget, a profit), with a minus sign when it is below zero: −15,000.
+    group() alone suits variances, whose direction is given in words (above / below plan)."""
+    return ('−' if Decimal(value) < 0 else '') + group(value, decimals)
+
+
 def signed(value, decimals=0):
     value = Decimal(value)
     return ('+' if value > 0 else '−' if value < 0 else '') + group(value, decimals)

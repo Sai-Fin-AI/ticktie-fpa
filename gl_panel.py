@@ -82,7 +82,7 @@ def gl_codes_view(dataset, grain, baseline, in_view):
     """Variance detail by GL code: every GL code behind the lines, largest variance first."""
     _table([g for g in gl_lines(dataset, grain, baseline) if in_view(g)], grain, baseline)
     st.caption('Each GL code at the chosen level, largest variance first. A credit GL code (for example a recharge '
-               'or recovery) can be negative; the account it rolls up to cannot.')
+               'or recovery) can be negative.')
 
 
 def gl_breakdown(dataset, line, baseline):

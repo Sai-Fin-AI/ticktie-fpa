@@ -9,6 +9,11 @@ def inr(value):
     return f'INR {fmt.group(value, 2)}'
 
 
+def inr_balance(value):
+    """An actual, budget or profit: keeps the minus sign of a loss or a negative balance."""
+    return f'INR {fmt.balance(value, 2)}'
+
+
 def pct_text(line):
     return f"{abs(Decimal(line['pct'])):.1f}%" if line['pct'] is not None else 'N/A (zero baseline)'
 
@@ -44,6 +49,12 @@ def line_facts(line_id, line, basis):
         facts['cost_centre' if name == 'cost_center' else name] = cost_centre(line) if name == 'cost_center' else value
     if line.get('scope') == 'Account total':
         facts['why_in_scope'] = 'Below the line threshold, but part of an account total that is material only in aggregate.'
+    if line.get('negative'):
+        which = 'actual' if Decimal(line['actual']) < 0 else basis
+        facts['negative_balance'] = (f"The {which} is {inr_balance(line['actual'] if which == 'actual' else line['baseline'])}: "
+                                     'a negative balance, usually a reversal, reclass or misposting. Say so; do not call it a saving.')
+        if line.get('scope') == 'Negative balance':
+            facts['why_in_scope'] = 'Below the thresholds, but every line with a negative balance needs an explanation.'
     if line['note']:
         n = line['note']
         facts.update({'explanation': n['reason'], 'reference': n['reference'], 'amount_stated': inr(n['amount']),
