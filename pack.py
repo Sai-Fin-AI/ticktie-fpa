@@ -71,12 +71,14 @@ def fy_outlook(lines, period, fy_start, profit_terms=False):
             'fy_effect': by_timing['One-off'] + by_timing['Unknown'] + recurring * (months_left + 1)}
 
 
-def build_pack(rows, baseline, amount_threshold, pct_threshold, notes, total_thresholds=None, fy_start=4):
+def build_pack(rows, baseline, amount_threshold, pct_threshold, notes, total_thresholds=None, fy_start=4, data_log=None):
     """Consolidated pack for every validated row of the month, regardless of on-screen filters.
 
     amount/pct thresholds apply to each line. total_thresholds apply to country x account totals
     when lines are finer than that (for example by cost centre). fy_start is the month (1-12)
-    the financial year begins, used only for the full-year outlook.
+    the financial year begins, used only for the full-year outlook. data_log: the data checks and
+    what was done about each (validate.log); fingerprinted with the figures, so the audit trail
+    cannot be changed after locking.
     """
     grain = list(rows[0].get('dims', ()))
     total_thresholds = total_thresholds if grain else None
@@ -118,7 +120,8 @@ def build_pack(rows, baseline, amount_threshold, pct_threshold, notes, total_thr
                     'explained': explained, 'unexplained': unexplained, 'open_items': open_items},
         'lines': lines,
         'outlook': fy_outlook(lines, rows[0]['month'], fy_start, kind == 'pl'),
-        'rollups': _rollups(lines, grain, total_thresholds, hidden_floor)})
+        'rollups': _rollups(lines, grain, total_thresholds, hidden_floor),
+        **({'data_checks': list(data_log)} if data_log else {})})
     return {**content, 'content_hash': _fingerprint(content)}
 
 
@@ -309,6 +312,9 @@ def pack_excel(pack):
                 e['to_explain'], _money(e['explained']), _money(e['unexplained']), ', '.join(e['flags']))
                for e in pack['rollups'][view]],
               money_cols=('Actual', base, 'Net variance', 'Gross movement', 'Hidden by offsets', 'Explained (confirmed)', 'Unexplained'))
+    if pack.get('data_checks'):
+        sheet('Data checks', ['Check', 'File', 'Detail', 'Action'],
+              [(c['check'], c['file'], c['detail'], c['action']) for c in pack['data_checks']])
     output = io.BytesIO()
     book.save(output)
     return output.getvalue()
@@ -342,6 +348,9 @@ def pack_markdown(pack):
     if opens:
         out += ['## Open items', ''] + [f"- {l['label']}: INR {Decimal(l['unexplained']):,.2f} unexplained. {open_reason(l)}."
                                         for l in opens] + ['']
+    if pack.get('data_checks'):
+        out += ['## Data checks', ''] + [f"- {c['check']} · {c['file']}: {c['detail']}. {c['action']}."
+                                         for c in pack['data_checks']] + ['']
     out += ['---', f"Pack fingerprint: `{pack['content_hash']}`. Figures are engine-calculated; explanations are reviewer-supplied."]
     return '\n'.join(out) + '\n'
 

@@ -23,6 +23,7 @@ During monthly reporting, FP&A teams reconcile actuals against budget or the lat
 - **Waterfall for any measure.** A dropdown walks budget to actual for EBITDA, Net profit, Gross margin, Sales or Costs, account by account; the CFO deck uses the same choice.
 - **Cost centres and any extra dimension.** Files can carry a `cost_center` column, cost centre details (name, function, owner) and extra columns such as project or region. **Analyse by** chooses the level; removing a level adds its rows up. The demo's 23 cost centre lines reconcile exactly to the 15-row account file.
 - **Cost centre master (optional).** Unknown cost centres and contradicting details stop the file. Cost centres with no data are listed as a completeness check.
+- **Data checks (rules, no AI).** Before any figure is calculated: extra spaces are cleaned automatically; the same code spelled differently across or within files (upper/lower case, leading zeros, separators: budget "00510100" vs actuals 510100) is offered as a match the reviewer must tick, so nothing is merged silently; codes Excel already corrupted (5.1E+11) stop the file. Every check and decision is logged in the fingerprinted pack (Data checks sheet).
 - **GL mapping (optional).** Ledgers that post to many GL codes per account (Travel = airfare, hotels, local conveyance) roll up through a mapping file. The analysis runs on accounts, and the GL codes stay visible: a GL codes view and a drill-down in every line being explained. A GL code missing from the mapping stops the file, and the app offers the mapping back as Excel with the new codes highlighted. Credit GL codes (recharges, recoveries) may be negative. The demo itself is GL-level data: 26 GL codes rolling up into 10 accounts.
 - **Configurable materiality.** The amount **and** percentage thresholds must both be met; zero baselines use the amount only. Cost centre lines and account totals have separate thresholds.
 - **Spread variances.** An account total that is material while no single cost centre is brings every moving line into scope, so each owner explains their share.
@@ -84,6 +85,7 @@ flowchart LR
 | `demo/` | Fictional demo explanations and recorded AI answers; rebuild with `scripts/record_demo.py` |
 | `app.py`, `ai_panel.py` | Streamlit interface |
 | `notes_panel.py` | Bulk explanation entry: editable table and Excel template round-trip |
+| `validate.py` | Rule-based data checks and cleaning: automatic fixes, suggested matches, corrupted-code stops, audit log |
 | `gl_panel.py` | GL mapping workbook (master export with new codes flagged) and the GL code tables |
 | `fmt.py` | Number style (international or Indian lakh/crore) for screen, commentary and deck |
 | `charts.py` | On-screen waterfall (Altair) |

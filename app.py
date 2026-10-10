@@ -187,7 +187,8 @@ else:
     total = compare(actual, plan, *(total_thresholds or line_thresholds))
 total_name = 'Net profit' if pl else 'Expenses'
 material = [r for r in result if r['material']]
-current_pack = build_pack(rows, baseline, *line_thresholds, st.session_state.business_notes, total_thresholds, fy_start)
+current_pack = build_pack(rows, baseline, *line_thresholds, st.session_state.business_notes, total_thresholds, fy_start,
+                          inputs.get('data_log'))
 with hero_box:
     hero('FP&A Variance Assistant',
          'Variance analysis that never invents a cause. Figures come from fixed rules; AI drafts wording only, '

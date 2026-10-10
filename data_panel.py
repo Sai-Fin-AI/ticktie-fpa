@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import streamlit as st
 
+import validate
 from finance import gl_resolver, sample_csv, sample_gl_csv, sample_gl_pl_csv, sample_pl_csv
 from ingest import (ROLE_LABELS, ROLES, check_roles, combined_csv, guess_roles, read_table, sample_actuals_csv,
                     sample_budget_xlsx, sample_forecast_csv, separate_csv)
@@ -75,7 +76,7 @@ def load_inputs(mode, uploads, gl_map=None):
         elif 'pl' in uploads:
             st.info('Upload the main expense file as well. Until then the demo data is shown.')
         return {'text': sample_gl_csv(), 'pl_text': sample_gl_pl_csv(), 'source': 'demo', 'demo': True, 'attrs': {},
-                'report': None, 'has_forecast': True, 'fingerprint': 'demo'}
+                'report': None, 'has_forecast': True, 'fingerprint': 'demo', 'data_log': []}
     kinds = (['combined'] if mode == COMBINED else [k for k, _ in FILES if k in uploads]) + (['pl'] if 'pl' in uploads else [])
     specs = {kind: _map_columns(kind, uploads[kind]) for kind in kinds}
     country = ''
@@ -91,6 +92,8 @@ def load_inputs(mode, uploads, gl_map=None):
     for kind, spec in specs.items():
         digest.update(kind.encode() + spec[3].encode() + uploads[kind].getvalue() + repr(spec[2]).encode())
     digest.update(country.encode())
+    specs, data_log, accepted = data_checks(specs, list(gl_map or ()), digest.hexdigest()[:10])
+    digest.update(repr(sorted(accepted)).encode())  # accepting a match changes the data
     source = 'upload:' + ','.join(f'{k}={s[3]}' for k, s in specs.items())
     # Negative amounts pass the conversion; load_csv then refuses them, or, with a GL mapping, allows a credit
     # GL code and checks the account totals after the roll-up.
@@ -101,10 +104,37 @@ def load_inputs(mode, uploads, gl_map=None):
         headers, rows, roles, name = specs['combined']
         return {'text': combined_csv(headers, rows, roles, name, country, allow_negative=True), 'pl_text': pl_text,
                 'source': source, 'demo': False, 'attrs': {}, 'report': None, 'has_forecast': True,
-                'fingerprint': digest.hexdigest()}
+                'fingerprint': digest.hexdigest(), 'data_log': data_log}
     text, attrs, report = separate_csv(specs, country, resolve=gl_resolver(gl_map) if credits else None)
     return {'text': text, 'pl_text': pl_text, 'source': source, 'demo': False, 'attrs': attrs, 'report': report,
-            'has_forecast': report['forecast'], 'fingerprint': digest.hexdigest()}
+            'has_forecast': report['forecast'], 'fingerprint': digest.hexdigest(), 'data_log': data_log}
+
+
+def data_checks(specs, gl_codes, file_id):
+    """Run the rule-based checks, show what was cleaned, and let the reviewer accept suggested matches.
+
+    Returns (cleaned specs, audit log, accepted suggestion ids). Nothing is merged without a tick.
+    """
+    cleaned, auto, suggestions = validate.check(specs, gl_codes)
+    accepted = []
+    if auto or suggestions:
+        title = f'Data checks · {len(auto)} automatic fix(es)' + (f' · {len(suggestions)} possible match(es) to review'
+                                                                  if suggestions else '')
+        with st.expander(title, expanded=bool(suggestions)):
+            for a in auto:
+                st.caption(f"✓ {a['file']} · {a['field']}: {a['check'].lower()} on {a['count']} value(s), "
+                           f"for example {a['example']}.")
+            if suggestions:
+                st.markdown('**The same code may be spelled differently.** Until you tick a match, each spelling is '
+                            'treated as its own line, so a budget and its actuals may not meet.')
+            for s in suggestions:
+                variants = '; '.join(f"\"{v['value']}\" in {', '.join(v['files'])} ({v['rows']} row(s), "
+                                     f"differs by {v['difference']})" for v in s['from'])
+                if st.checkbox(f"{s['label']}: treat {variants} as \"{s['to']}\" ({', '.join(s['to_files'])})",
+                               key=f"datafix_{file_id}_{s['id']}"):
+                    accepted.append(s['id'])
+            st.caption('Rules only, no AI. Every check and your decision go into the review pack (Data checks sheet).')
+    return validate.apply(cleaned, suggestions, accepted), validate.log(auto, suggestions, accepted), accepted
 
 def show_reconciliation(report, rows):
     """Control totals per file against what the analysis uses, plus lines found in only one file."""
