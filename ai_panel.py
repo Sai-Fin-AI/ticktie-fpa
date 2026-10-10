@@ -69,7 +69,7 @@ def ai_settings():
 def demo_notes_button(rows):
     if st.button('Load demo explanations', help='Fictional notes covering confirmed, partial, vague, unconfirmed, '
                                                 'conflicting and missing explanations. Sample data, budget comparison, '
-                                                'analysed by cost centre.'):
+                                                'analysed by cost / profit centre with sales by brand.'):
         restored, _ = import_notes(DEMO_NOTES.read_text(encoding='utf-8'), rows)
         if restored:
             st.session_state.business_notes.update(restored)
@@ -78,8 +78,8 @@ def demo_notes_button(rows):
             st.session_state.demo_flash = f'Loaded {len(restored)} demo explanations for the budget comparison.'
             st.rerun()
         else:
-            st.info('Demo explanations only match the sample data analysed by cost centre. '
-                    'Clear any uploaded file and keep "Cost centre" under Analyse by.')
+            st.info('Demo explanations only match the sample data at the default level. Clear any uploaded file, keep '
+                    '"Cost / profit centre" under Analyse by and "Brand" under Sales and cost of sales by.')
     if 'demo_flash' in st.session_state:
         st.success(st.session_state.pop('demo_flash'))
 

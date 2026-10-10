@@ -3,19 +3,40 @@
 [![tests](https://github.com/casaikiran93-maker/fpa-variance-assistant/actions/workflows/tests.yml/badge.svg)](https://github.com/casaikiran93-maker/fpa-variance-assistant/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python 3.12 | 3.13](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
+[![Live demo](https://img.shields.io/badge/live%20demo-streamlit-ff4b4b)](https://fpa-variance-assistant.streamlit.app)
 
-**Month-end variance analysis that never invents a cause.** Upload actuals, budget and forecast. The tool validates the data, calculates variances in exact decimal arithmetic and flags material movements. It then asks the reviewer to explain each one. Figures come only from the engine; explanations come only from people and are labelled as such.
+**Month-end variance analysis that never invents a cause.** Upload actuals, budget and forecast, by GL code, cost centre, profit centre and SKU. The tool validates the data, calculates every variance in exact decimal arithmetic, flags what is material and asks the owners to explain it. Then two AI agents turn the locked review into CFO commentary and a 12-slide PowerPoint deck. **The AI never calculates a figure, and every figure it writes is tick-and-tied back to the locked pack by plain code.**
 
-Version 0.7: a full P&L from sales to net profit (or an expense-only review), cost centres, owners and any extra dimension, plus an AI interviewer and AI CFO commentary, with every AI figure tick-and-tied to a locked review pack. Runs free, on a local model or free-tier services. It also builds a CFO PowerPoint deck in parallel with the commentary (see the [roadmap](docs/ROADMAP.md)).
+## Try it
 
-<!-- Add a screenshot: save it as docs/screenshot.png and uncomment the line below. -->
-<!-- ![App screenshot](docs/screenshot.png) -->
+**[▶ Open the live demo](https://fpa-variance-assistant.streamlit.app)**. No sign-up and no API key: it runs on synthetic data, with AI answers recorded from a local model and labelled as such. Click **Load demo explanations**, then **Lock review pack**, then **Draft CFO commentary and deck**. The [walkthrough](docs/WALKTHROUGH.md) gives the figures to expect at each step.
+
+![The review screen: P&L tiles, statement and EBITDA waterfall](docs/images/app_overview.png)
+
+| CFO deck: executive summary | CFO deck: EBITDA bridge |
+| --- | --- |
+| ![Executive summary slide](docs/images/deck_summary.png) | ![EBITDA bridge slide](docs/images/deck_bridge.png) |
+| **Sales and gross margin by brand** | **Where the variance sits** |
+| ![Brand margin slide](docs/images/deck_brands.png) | ![Heatmap slide](docs/images/deck_heatmap.png) |
+
+More screens: [brand mix and heatmap](docs/images/app_brands_heatmap.png) · [explaining a line, with SKU and GL drill-down](docs/images/app_explain.png) · [checked CFO commentary](docs/images/app_commentary.png). The design choices behind it are in the [case study](docs/CASE_STUDY.md).
+
+## What makes it safe to put in front of a CFO
+
+| Risk with AI commentary | Control in this tool |
+| --- | --- |
+| The AI miscalculates or invents a number | The AI never calculates. A plain-code checker traces every figure in its text to the locked pack (lakh, crore and million included). Text that fails is replaced with engine-written wording. |
+| The right number on the wrong line | Each amount must belong to the name just before it. A line listed under "favorable" or "unexplained" must really be favorable or unexplained. |
+| An invented cause | Causes come only from reviewers' notes, labelled as supplied. Only *confirmed* notes reduce the unexplained balance. |
+| Numbers drift between screen, Excel and slides | One locked, SHA-256 fingerprinted pack feeds every output. Change anything and the exports are withheld until you lock again. |
+| Bad data in, confident commentary out | Rule-based data checks run before any calculation: duplicates, missing values, mixed months, unmapped GL codes and SKUs, codes Excel has corrupted. Nothing is assumed or silently merged. |
+| Offsetting movements hidden in a net figure | Gross vs net for every account, centre and brand: India sales are +300k net but move 1,020k gross. |
 
 ## Why it exists
 
 During monthly reporting, FP&A teams reconcile actuals against budget or the latest forecast, pick out material movements and chase explanations. All of it is done under deadline pressure. The risk is commentary that sounds confident but restates numbers wrongly or guesses at causes. This project makes each step explicit, repeatable and reviewable.
 
-## What it does
+## What it does (full list)
 
 - **Validates before it calculates.** Missing values, duplicate keys, wrong currency, malformed amounts and mixed months stop the analysis. Nothing is assumed.
 - **Negative balances handled, not hidden.** Credit notes, reversals and recoveries are accepted. A line that nets below zero (demo: India Recruitment at INR −5,000 after an agency credit note) is flagged ⚠ on screen, in the Excel pack, the commentary and the deck; it always needs an explanation whatever its size, and cannot be marked Recurring, so a reversal is never rolled into the full-year view. Losses and negative balances keep their minus sign in every output.
@@ -44,15 +65,15 @@ During monthly reporting, FP&A teams reconcile actuals against budget or the lat
 - **AI interviewer.** Before locking, it lists follow-up questions for each material line, grouped **by owner**, with a downloadable query list (Markdown or CSV) for the month-end chase. Fixed rules catch missing, unconfirmed and partial explanations, spread-variance shares and unknown timing; the AI flags vague wording such as "higher costs" and suggests a sharper question.
 - **AI CFO commentary.** Drafted from the locked pack. The AI writes wording only for explained lines; unexplained lines, open items and actions come straight from the pack.
 - **CFO-ready layout.** Headline tiles, colour-coded line cards (▲ unfavorable / ▼ favorable), review-status and timing chips, and an explained-vs-unexplained bar per line. Download it as HTML (prints neatly to PDF), Markdown or JSON. Every colour is paired with an arrow, icon or word, so it reads in black-and-white print too.
-- **CFO deck (PowerPoint).** Built in parallel with the commentary from the same locked pack, in 16:9 with 10 slides: title, executive summary with KPI tiles, budget-to-actual **waterfall bridge**, largest movements, cost centre × account **heatmap**, what net figures hide (gross vs net), open items by owner, run-rate outlook by timing (one-off / recurring / timing difference) with the full-year view and reviewer actions, and an appendix. The largest-movements slide shows each owner's **reason** next to the figures. Code draws every chart, table and number; headlines are standard (engine-written) by default, or AI-written on request, and any AI headline that fails the checks is replaced by standard wording.
-- **Tick-and-tie checker.** Plain code with no AI. Every figure in AI text must exist in the pack (lakh, crore and million are understood). It also catches favourable/unfavourable mix-ups, unconfirmed or conflicting notes presented as fact, partial explanations that hide the unexplained gap, internal codes, and **figures attached to the wrong line**: each amount must belong to the name written just before it, e.g. INR 340,000 is Distribution across all countries, not India Distribution. With cost centres, "India Distribution" means the account total, so commentary that calls one cost centre's line by that name is rejected. A failing draft gets one retry with the problems listed; if it fails again, download is blocked.
+- **CFO deck (PowerPoint).** Built in parallel with the commentary from the same locked pack, in 16:9: title, executive summary with KPI tiles, P&L, budget-to-actual **waterfall bridge**, sales and gross margin by brand, largest movements, centre × account **heatmap**, what net figures hide (gross vs net), open items by owner, run-rate outlook by timing (one-off / recurring / timing difference) with the full-year view and reviewer actions, and an appendix (12 slides for the demo). Tables size themselves to long names and many brands, and say when rows are left for the appendix or the Excel pack. The largest-movements slide shows each owner's **reason** next to the figures. Code draws every chart, table and number; headlines are standard (engine-written) by default, or AI-written on request, and any AI headline that fails the checks is replaced by standard wording.
+- **Tick-and-tie checker.** Plain code with no AI. Every figure in AI text must exist in the pack (lakh, crore and million are understood). It also catches favourable/unfavourable mix-ups, unconfirmed or conflicting notes presented as fact, partial explanations that hide the unexplained gap, internal codes, and **figures attached to the wrong line**: each amount must belong to the name written just before it, e.g. INR 340,000 is Distribution across all countries, not India Distribution. With cost centres, "India Distribution" means the account total, so commentary that calls one cost centre's line by that name is rejected. **Lists are checked too:** a line under "favorable variances include…" must be favorable, a line under "unexplained…" must have an unexplained amount, and "above/below budget" must match the sign. A failing draft gets one retry with the problems listed; whatever still fails is replaced with engine-written wording, and the reviewer sees what the AI got wrong.
 
 ## AI modes (all free)
 
 | Mode | Who it's for | Setup |
 | --- | --- | --- |
 | **Demo** (default) | Anyone, instantly | None. Click **Load demo explanations**. Replays answers recorded from a local model and labelled as recorded. |
-| **Ollama** | Running it on your own computer | Install [Ollama](https://ollama.com), then `ollama pull qwen3:8b` (about 5 GB; needs a GPU with 8 GB or 16 GB RAM). Nothing leaves your machine. |
+| **Ollama** | Running it on your own computer (not offered on the live demo) | Install [Ollama](https://ollama.com), then `ollama pull qwen3:8b` (about 5 GB; needs a GPU with 8 GB or 16 GB RAM). Nothing leaves your machine. |
 | **Groq / Gemini / OpenRouter** | Live AI without a GPU | A free-tier API key pasted into the sidebar. It is used for that session only and never saved. Free tiers have daily limits, and some providers may use requests to improve their models. Use synthetic data only. |
 
 All providers share one connection (`llm.py`) because they accept the same OpenAI-style request format; only the address, key and model differ.
@@ -83,7 +104,7 @@ flowchart LR
 | `data_panel.py` | Data source choice, column-mapping dropdowns, reconciliation of control totals |
 | `pack.py` | Locked review pack, tamper check, Excel/Markdown/JSON exports, notes backup and restore |
 | `llm.py` | One connection for every AI provider, plus demo mode |
-| `agents/` | `interviewer.py` (follow-up questions) and `writer.py` (CFO commentary) |
+| `agents/` | `interviewer.py` (follow-up questions), `writer.py` (CFO commentary) and `deck.py` (CFO PowerPoint deck) |
 | `checker.py` | Tick-and-tie of AI text against the pack (no AI) |
 | `report_html.py` | Styled CFO commentary page (tiles, cards, coverage bars), HTML-escaped |
 | `demo/` | Fictional demo explanations and recorded AI answers; rebuild with `scripts/record_demo.py` |
@@ -93,7 +114,7 @@ flowchart LR
 | `gl_panel.py` | GL mapping workbook (master export with new codes flagged) and the GL code tables |
 | `fmt.py` | Number style (international or Indian lakh/crore) for screen, commentary and deck |
 | `charts.py` | On-screen waterfall (Altair) |
-| `tests/` | 163 tests: engine, data loading and column mapping, cost centres and roll-ups, evidence, review pack, agents, checker, provider connection, UI, and edge cases found by a synthetic stress run. No AI or network needed. |
+| `tests/` | 166 tests: engine, data loading and column mapping, cost centres and roll-ups, evidence, review pack, agents, checker, provider connection, UI, and edge cases found by a synthetic stress run. No AI or network needed. |
 
 ## Run it locally
 
@@ -177,7 +198,8 @@ One month per file, INR only. The master catches cost centres with no data, but 
 3b. ✅ Cost centres, owners, extra dimensions, roll-ups with gross vs net, spread variances, heatmap, owner query lists
 3c. ✅ Separate actuals / budget / forecast uploads (CSV or Excel) with column-mapping dropdowns and reconciliation
 4. ✅ CFO deck agent (python-pptx), running in parallel with the commentary agent on the same locked pack
-5. 🔜 Hosted demo
+5. ✅ Hosted demo (Streamlit Community Cloud, demo AI mode), walkthrough, [case study](docs/CASE_STUDY.md)
+6. 🔜 Price / volume / mix, year-to-date view
 
 Full plan, tools and backlog: [docs/ROADMAP.md](docs/ROADMAP.md).
 
