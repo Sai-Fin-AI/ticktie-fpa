@@ -22,7 +22,7 @@ from notes_panel import excel_roundtrip, notes_table, show_bulk_errors
 import pandas as pd
 from style import apply_style, colour_table, hero, money_columns, section
 
-st.set_page_config(page_title='FP&A Variance Assistant', page_icon='📊', layout='wide')
+st.set_page_config(page_title='TickTie · FP&A variance review', page_icon='📊', layout='wide')
 apply_style()
 hero_box = st.container()  # filled once the data is known
 
@@ -239,9 +239,9 @@ material = [r for r in result if r['material']]
 current_pack = build_pack(rows, baseline, *line_thresholds, st.session_state.business_notes, total_thresholds, fy_start,
                           inputs.get('data_log'))
 with hero_box:
-    hero('FP&A Variance Assistant',
-         'Variance analysis that never invents a cause. Figures come from fixed rules; AI drafts wording only, '
-         'and every AI figure is checked against the locked pack.',
+    hero('TickTie · FP&A variance review',
+         'Month-end variance review a CFO can sign off. Figures come from fixed rules, causes from reviewers; AI drafts '
+         'wording only, and every AI figure is tick-and-tied to the locked pack.',
          [f"📅 {rows[0]['month']}", f'⚖️ Actual vs {baseline}', f'🧭 {level_name}',
           '🧪 Demo data' if inputs['demo'] else '📂 Uploaded data', '💱 INR', 'v1.0'])
 in_scope = [l for l in current_pack['lines'] if l['material'] and in_view(l)]

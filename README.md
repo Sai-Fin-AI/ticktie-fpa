@@ -1,15 +1,17 @@
-# FP&A Variance Assistant
+# TickTie: FP&A variance review a CFO can sign off
 
-[![tests](https://github.com/casaikiran93-maker/fpa-variance-assistant/actions/workflows/tests.yml/badge.svg)](https://github.com/casaikiran93-maker/fpa-variance-assistant/actions/workflows/tests.yml)
+[![tests](https://github.com/casaikiran93-maker/ticktie-fpa/actions/workflows/tests.yml/badge.svg)](https://github.com/casaikiran93-maker/ticktie-fpa/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python 3.12 | 3.13](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
-[![Live demo](https://img.shields.io/badge/live%20demo-streamlit-ff4b4b)](https://fpa-variance-assistant.streamlit.app)
+[![Live demo](https://img.shields.io/badge/live%20demo-streamlit-ff4b4b)](https://ticktie-fpa.streamlit.app)
 
 **Month-end variance analysis that never invents a cause.** Upload actuals, budget and forecast, by GL code, cost centre, profit centre and SKU. The tool validates the data, calculates every variance in exact decimal arithmetic, flags what is material and asks the owners to explain it. Then two AI agents turn the locked review into CFO commentary and a 12-slide PowerPoint deck. **The AI never calculates a figure, and every figure it writes is tick-and-tied back to the locked pack by plain code.**
 
+*Why "TickTie"? To tick and tie is the accountant's check that every figure in a report traces back to its source. Here code does it to every sentence the AI writes.*
+
 ## Try it
 
-**[▶ Open the live demo](https://fpa-variance-assistant.streamlit.app)**. No sign-up and no API key: it runs on synthetic data, with AI answers recorded from a local model and labelled as such. Click **Load demo explanations**, then **Lock review pack**, then **Draft CFO commentary and deck**. The [walkthrough](docs/WALKTHROUGH.md) gives the figures to expect at each step.
+**[▶ Open the live demo](https://ticktie-fpa.streamlit.app)**. No sign-up and no API key: it runs on synthetic data, with AI answers recorded from a local model and labelled as such. Click **Load demo explanations**, then **Lock review pack**, then **Draft CFO commentary and deck**. The [walkthrough](docs/WALKTHROUGH.md) gives the figures to expect at each step.
 
 ![The review screen: P&L tiles, statement and EBITDA waterfall](docs/images/app_overview.png)
 

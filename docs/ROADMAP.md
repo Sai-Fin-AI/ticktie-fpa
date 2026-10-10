@@ -1,4 +1,4 @@
-# Roadmap: FP&A Variance Assistant → CFO Review Pack
+# Roadmap: TickTie (FP&A variance review → CFO pack)
 
 Living plan for turning the v0.2 prototype into a portfolio project: variances → reviewer-supplied reasons → AI-compiled commentary → CFO-ready slides.
 
@@ -137,7 +137,7 @@ Decisions: explanations at cost centre × account and rolled up; the user choose
 | --- | --- | --- |
 | Language | Python 3.13 | ✅ installed |
 | Version control | Git (via GitHub Desktop, or install Git for Windows to use `git` in a terminal) | ✅ GitHub Desktop; `git` not on PATH |
-| Hosting code | GitHub account + repo `casaikiran93-maker/fpa-variance-assistant` | ✅ |
+| Hosting code | GitHub account + repo `casaikiran93-maker/ticktie-fpa` | ✅ |
 | UI | Streamlit 1.64 | ✅ |
 | Editor / AI pair | VS Code, Claude Code | ✅ |
 | Data handling | `decimal` (stdlib); pandas optional for Excel/charts | ✅ pandas present |

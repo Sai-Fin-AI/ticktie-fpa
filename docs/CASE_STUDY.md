@@ -1,4 +1,4 @@
-# Case study: AI commentary a CFO can rely on
+# Case study: TickTie, AI commentary a CFO can rely on
 
 ## The problem
 
