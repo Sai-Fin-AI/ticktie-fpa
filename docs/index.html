@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TickTie demo</title>
+<meta name="description" content="A 2-minute demo of TickTie: FP&amp;A month-end variance review where the AI writes but never calculates, and every AI figure is tick-and-tied to a locked review pack.">
+<meta property="og:title" content="TickTie: FP&amp;A variance review a CFO can sign off">
+<meta property="og:description" content="Watch the 2-minute demo. The AI writes, it never calculates; code ties every AI figure back to the locked numbers.">
+<meta property="og:image" content="https://sai-fin-ai.github.io/ticktie-fpa/images/video_thumbnail.jpg">
+<meta property="og:type" content="video.other">
+<style>
+  :root { --navy: #0b1f44; --blue: #175cd3; --amber: #f79009; --ink: #101828; --muted: #475467; --bg: #f5f7fb; --card: #ffffff; }
+  @media (prefers-color-scheme: dark) { :root { --ink: #f2f4f7; --muted: #98a2b3; --bg: #0c111d; --card: #161b26; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+  header { background: linear-gradient(135deg, var(--navy), var(--blue)); color: #fff; padding: 40px 16px 92px; text-align: center; }
+  .kicker { font-size: 13px; letter-spacing: 3px; font-weight: 600; color: #9ec5ff; }
+  h1 { font-size: clamp(36px, 7vw, 60px); margin: 10px 0 6px; }
+  .tagline { font-size: clamp(17px, 3vw, 22px); font-weight: 600; margin: 0; }
+  main { max-width: 1040px; margin: -64px auto 40px; padding: 0 16px; }
+  .player { background: var(--card); border-radius: 14px; padding: 10px; box-shadow: 0 20px 50px rgba(16, 24, 40, .25); }
+  video { display: block; width: 100%; height: auto; border-radius: 8px; background: #000; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 26px 0 8px; }
+  .btn { display: inline-block; padding: 12px 22px; border-radius: 999px; font-weight: 600; text-decoration: none; font-size: 16px; }
+  .primary { background: var(--amber); color: #101828; }
+  .secondary { border: 2px solid var(--blue); color: var(--blue); }
+  @media (prefers-color-scheme: dark) { .secondary { color: #9ec5ff; border-color: #9ec5ff; } }
+  .points { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 28px; }
+  .point { background: var(--card); border-radius: 12px; padding: 16px 18px; }
+  .point b { display: block; margin-bottom: 4px; }
+  .point span { color: var(--muted); font-size: 15px; line-height: 1.45; }
+  footer { text-align: center; color: var(--muted); font-size: 14px; padding: 8px 16px 36px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="kicker">MONTH-END CLOSE · CFO REVIEW</div>
+  <h1>TickTie</h1>
+  <p class="tagline">FP&amp;A variance review a CFO can sign off</p>
+</header>
+<main>
+  <div class="player">
+    <video controls playsinline preload="metadata" poster="images/video_thumbnail.jpg">
+      <source src="video/ticktie_demo.mp4" type="video/mp4">
+      Your browser cannot play this video. <a href="video/ticktie_demo.mp4">Download it here.</a>
+    </video>
+  </div>
+  <div class="actions">
+    <a class="btn primary" href="https://ticktie-fpa.streamlit.app">▶ Try the live demo</a>
+    <a class="btn secondary" href="https://github.com/Sai-Fin-AI/ticktie-fpa">See the code and case study</a>
+  </div>
+  <div class="points">
+    <div class="point"><b>Figures come only from code</b><span>Variances, materiality, the bridge and gross vs net are calculated, never generated.</span></div>
+    <div class="point"><b>Causes come only from people</b><span>Owners explain each line; only reviewer-confirmed explanations count.</span></div>
+    <div class="point"><b>Lock before you write</b><span>Figures and notes are frozen under a fingerprint, so every output agrees.</span></div>
+    <div class="point"><b>Code checks the AI</b><span>Every AI sentence is tick-and-tied to the locked numbers; anything that doesn't tie is replaced.</span></div>
+  </div>
+</main>
+<footer>Synthetic data only · free and open source · built by a Chartered Accountant in FP&amp;A</footer>
+</body>
+</html>
