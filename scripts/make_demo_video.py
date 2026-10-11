@@ -16,6 +16,7 @@ import asyncio
 import base64
 import json
 import os
+import queue
 import shutil
 import socket
 import subprocess
@@ -35,38 +36,83 @@ WIDTH, HEIGHT = 1920, 1080  # the video
 ZOOM = 4 / 3  # the page is laid out at 1440 x 810 and drawn at 1920 x 1080, so text reads on a phone
 VOICE = 'en-IN-NeerjaNeural'
 
-# (narration, actions). Actions run while the narration plays; the scene lasts as long as its voice.
-SCENES = [
-    ("This is TickTie: a month-end variance review where the AI never calculates a single number.",
-     [('card', 'intro')]),
-    ("August's P and L: sales are 500 thousand above budget, but net profit is 195 thousand below. "
-     "Sixteen lines need an explanation.",
-     [('uncard',), ('highlight', 'metrics'), ('wait', 3.2), ('scroll', 'Profit and loss'), ('highlight', 'chart')]),
-    ("Totals hide the story. India's sales look calm at plus 300 thousand, but the brands moved over a million: "
-     "a retailer delisted Nimbus, while Aurora and Breeze grew.",
-     [('scroll', 'Sales and gross margin by brand'), ('highlight', 'card:Sales and gross margin by brand'), ('wait', 3.5),
-      ('scroll', 'Variance detail'), ('radio', 'View by', 'Account'), ('highlight', 'table:Gross movement INR')]),
-    ("Each line is explained by its owner, with the SKUs and GL codes inside it. Only confirmed explanations count. "
-     "Two thirds of the movement is now explained; eleven items are still open.",
-     [('scroll', 'Business explanations'), ('expand', 'SKUs in this line'), ('expand', 'GL codes in this line'),
-      ('highlight', 'expander:SKUs in this line'), ('wait', 2.5), ('click', 'Load demo explanations'),
-      ('top',), ('highlight', 'metric:Explained (confirmed)')]),
-    ("An AI interviewer drafts follow-up questions for every owner, ready to send.",
-     [('scroll', 'AI interviewer'), ('click', 'Ask the interviewer'), ('scroll', 'AI interviewer'),
-      ('highlight', 'expander:👤')]),
-    ("I lock the pack: figures and notes are fingerprinted. Two AI agents then draft the CFO commentary, and a "
-     "twelve slide deck.",
-     [('scroll', 'Review pack'), ('click', 'Lock review pack'), ('highlight', 'text:Pack locked'), ('wait', 1.5),
-      ('click', 'Draft CFO commentary and deck'), ('scroll', 'CFO deck ·'), ('highlight', 'card:CFO deck ·')]),
-    ("Every sentence is tick-and-tied by code. Here, the AI put an overspend in a favorable list. "
-     "The checker caught it, and replaced it.",
-     [('scroll', 'Every figure ties'), ('expand', 'Reviewer details: what the AI got wrong'),
-      ('highlight', 'expander:Reviewer details: what the AI got wrong')]),
-    ("And the deck is ready for the CFO. Every number on these slides came from code, not from the AI.",
-     [('slides', ['deck_summary.png', 'deck_bridge.png', 'deck_brands.png'])]),
-    ("TickTie: variance commentary a CFO can sign off. Try the live demo, the link is below.",
-     [('card', 'outro')]),
+# The story, chapter by chapter: problem, result, what the totals hide, who explains, the AI and its controls,
+# the CFO pack. Each chapter is a list of beats: one sentence and what the screen does while it is spoken, so
+# the screen always shows what the voice is saying. A beat lasts as long as its voice; chapters get a pause.
+CHAPTERS = [
+    (None, [
+        ("Every month-end, finance teams explain actuals against budget to the CFO.", [('card', 'intro')]),
+        ("AI can draft that commentary in seconds. But no CFO can sign off a number the AI calculated.", []),
+        ("So TickTie follows one rule: the AI writes, but it never calculates.", []),
+    ]),
+    ('The month at a glance', [
+        ("Here is August for a consumer goods company in three countries, on synthetic data.",
+         [('uncard',), ('highlight', 'text:Synthetic demo data')]),
+        ("The ledger data comes in by GL code, cost centre, profit centre and brand.", [('highlight', 'text:GL mapping')]),
+        ("Code calculates every figure. Sales are 500 thousand above budget, yet net profit is 195 thousand below.",
+         [('highlight', 'metrics')]),
+    ]),
+    ('Why profit fell', [
+        ("The bridge shows why: higher cost of goods sold and distribution more than offset the extra sales.",
+         [('scroll', 'Profit and loss'), ('highlight', 'chart')]),
+    ]),
+    ('What the totals hide', [
+        ("By brand, Breeze and Aurora grew, while Nimbus fell short.",
+         [('scroll', 'Sales and gross margin by brand'), ('highlight', 'card:Sales and gross margin by brand')]),
+        ("Net figures hide offsets, so every total also shows its gross movement.",
+         [('scroll', 'Variance detail'), ('radio', 'View by', 'Account')]),
+        ("India's sales look calm at plus 300 thousand, yet 720 thousand moved underneath.",
+         [('scroll', 'Variance detail'), ('highlight', 'table:Variance detail')]),
+    ]),
+    ('Owners explain', [
+        ("Sixteen lines cross the materiality rules, and each one has an owner.",
+         [('scroll', 'Where the variance sits'), ('highlight', 'card:Where the variance sits')]),
+        ("The largest is Nimbus in India, with its SKUs and GL codes right behind it.",
+         [('scroll', 'Business explanations'), ('expand', 'SKUs in this line'), ('highlight', 'expander:SKUs in this line')]),
+        ("Causes come only from people, and only confirmed explanations count.", [('click', 'Load demo explanations')]),
+        ("Two thirds is now explained; eleven items are still open.", [('top',), ('highlight', 'metric:Explained (confirmed)')]),
+    ]),
+    ('Chase what is open', [
+        ("For what is open, an AI interviewer drafts follow-up questions for each owner.",
+         [('scroll', 'AI interviewer'), ('click', 'Ask the interviewer'), ('highlight', 'expander:Priya Nair')]),
+    ]),
+    ('Lock, then write', [
+        ("Then the pack is locked, under a fingerprint.",
+         [('scroll', 'Review pack'), ('click', 'Lock review pack'), ('highlight', 'text:Pack locked')]),
+        ("Two AI agents read it in parallel: one writes the CFO commentary, the other builds the deck.",
+         [('click', 'Draft CFO commentary and deck'), ('scroll', 'CFO deck ·'), ('highlight', 'card:CFO deck ·')]),
+    ]),
+    ('Code checks the AI', [
+        ("Code tick-and-ties every AI sentence against the pack.",
+         [('scroll', 'Every figure ties'), ('highlight', 'text:Every figure ties')]),
+        ("Here, five failed, including an overspend listed as favorable. Each was replaced with the engine's own wording.",
+         [('expand', 'Reviewer details: what the AI got wrong'), ('highlight', 'expander:Reviewer details: what the AI got wrong')]),
+    ]),
+    ('The CFO pack', [
+        ("The result is a deck the CFO can use straight away:", [('slide', 'deck_summary.png')]),
+        ("the bridge, and the brand mix behind the totals.", [('slide', 'deck_bridge.png'), ('wait', 2.0), ('slide', 'deck_brands.png')]),
+        ("Every number on it came from code, not from the AI.", [('slide', 'deck_heatmap.png')]),
+    ]),
+    (None, [
+        ("TickTie: variance commentary a CFO can sign off. Try the live demo; the link is below.", [('card', 'outro')]),
+    ]),
 ]
+BEAT_GAP, CHAPTER_GAP = 0.3, 0.8  # seconds of quiet after a beat and after a chapter
+
+
+def _beats():
+    """Flatten the chapters into beats; each chapter's first beat shows its numbered label."""
+    scenes, holds, number = [], [], 0
+    for title, beats in CHAPTERS:
+        number += bool(title)
+        for i, (text, actions) in enumerate(beats):
+            label = [('chapter', f'{number:02d}' if title else '', title or '')] if i == 0 else []
+            scenes.append((text, label + list(actions)))
+            holds.append(CHAPTER_GAP if i == len(beats) - 1 else BEAT_GAP)
+    return scenes, holds
+
+
+SCENES, HOLDS = _beats()
 SPOKEN = {'Tick Tie': 'TickTie', 'P and L': 'P&L', 'tick-and-tied': 'tick-and-tied'}  # caption spellings
 
 PAGE_JS = r"""
@@ -78,15 +124,19 @@ window.tt = (() => {
       transition:left .7s ease,top .7s ease,transform .15s}
     #tt-cursor.down{transform:scale(.6)}
     #tt-hl{position:fixed;border:4px solid #f79009;border-radius:12px;box-shadow:0 0 0 9999px rgba(16,24,40,.18);
-      z-index:99998;pointer-events:none;opacity:0;transition:all .5s ease}
+      z-index:99998;pointer-events:none;opacity:0;transition:opacity .4s ease}
     #tt-card{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;
       background:linear-gradient(135deg,#0b1f44,#175cd3);color:#fff;font-family:'Segoe UI',sans-serif;
       transition:opacity .6s ease}
+    #tt-chapter{position:fixed;left:22px;top:18px;z-index:100001;padding:8px 18px 8px 10px;border-radius:999px;
+      background:#0b1f44;color:#fff;font:600 17px 'Segoe UI',sans-serif;box-shadow:0 6px 20px rgba(16,24,40,.25);
+      opacity:0;transform:translateY(-8px);transition:all .5s ease;pointer-events:none}
+    #tt-chapter b{display:inline-block;margin-right:10px;padding:2px 9px;border-radius:999px;background:#f79009}
     #tt-card > div{zoom:.75}
     #tt-card img{max-width:88%;max-height:86%;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
     [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"]{visibility:hidden}`;
   document.head.appendChild(css);
-  for (const id of ['tt-cursor', 'tt-hl']) { const d = document.createElement('div'); d.id = id; document.body.appendChild(d); }
+  for (const id of ['tt-cursor', 'tt-hl', 'tt-chapter']) { const d = document.createElement('div'); d.id = id; document.body.appendChild(d); }
   const visible = e => e && e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden';
   // Section titles start with an emoji and some labels are shown in capitals: compare letters, ignoring case.
   // Expander titles also begin with their icon's name (keyboard_arrow_down).
@@ -102,8 +152,10 @@ window.tt = (() => {
     if (spec === 'metrics') return find('Sales · INR')?.closest('[data-testid="stHorizontalBlock"]');
     if (spec === 'chart') return [...document.querySelectorAll('[data-testid="stVegaLiteChart"], .vega-embed')].find(visible);
     if (kind === 'card') return find(text)?.closest('[data-testid="stVerticalBlockBorderWrapper"], [data-testid="stVerticalBlock"]');
-    if (kind === 'table') { const head = [...document.querySelectorAll('[data-testid="stDataFrame"]')].filter(visible);
-      return head.find(d => d.innerText.includes(text)) || head[0]; }
+    if (kind === 'table') { // the first table after a heading ("table:Variance detail")
+      const head = find(text, 'h1, h2, h3, h4, p, div');
+      return [...document.querySelectorAll('[data-testid="stDataFrame"]')].filter(visible)
+        .find(d => head && (head.compareDocumentPosition(d) & Node.DOCUMENT_POSITION_FOLLOWING)); }
     if (kind === 'expander') return find(text, 'summary')?.closest('details');
     if (kind === 'metric') return [...document.querySelectorAll('[data-testid="stMetric"]')].find(m => norm(m.innerText).startsWith(norm(text)));
     if (kind === 'text') return find(text, 'p, div');
@@ -115,14 +167,28 @@ window.tt = (() => {
       e.scrollIntoView({behavior: 'smooth', block: 'start'}); return true; },
     top() { const m = document.querySelector('[data-testid="stMain"], section.main'); (m || window).scrollTo({top: 0, behavior: 'smooth'}); return true; },
     point(e) { const c = document.getElementById('tt-cursor'), p = rect(e); c.style.left = p.x + 'px'; c.style.top = p.y + 'px'; },
+    // The box follows its element every frame (and finds it again if Streamlit redraws it), so a late reflow after
+    // a click can never leave the box over the wrong thing.
     highlight(spec) { const e = target(spec), h = document.getElementById('tt-hl');
-      if (!e) { h.style.opacity = 0; return false; }
-      if (e.getBoundingClientRect().top < 0 || e.getBoundingClientRect().bottom > innerHeight) e.scrollIntoView({behavior: 'smooth', block: 'center'});
-      setTimeout(() => { const r = e.getBoundingClientRect(), pad = 10;
-        Object.assign(h.style, {left: r.left - pad + 'px', top: Math.max(4, r.top - pad) + 'px', width: r.width + 2 * pad + 'px',
-          height: Math.min(innerHeight - 8, r.height + 2 * pad) + 'px', opacity: 1}); this.point(e); }, 700);
+      if (!e) { this.unhighlight(); return false; }
+      this.spec = spec; this.current = e; this.shown = false; this.rescrolled = false;
+      const fits = r => r.top >= 0 && r.bottom <= innerHeight;
+      if (!fits(e.getBoundingClientRect())) e.scrollIntoView({behavior: 'smooth', block: 'center'});
+      setTimeout(() => { if (this.current === e) { this.shown = true; h.style.opacity = 1; this.point(e); } }, 700);
+      if (!this.tracking) { this.tracking = true;
+        const step = () => {
+          if (this.current) {
+            if (!this.current.isConnected) this.current = target(this.spec) || this.current;
+            const r = this.current.getBoundingClientRect(), pad = 10;
+            if (this.shown && !this.rescrolled && (r.bottom < 40 || r.top > innerHeight - 40)) {  // pushed off screen by a redraw
+              this.rescrolled = true; this.current.scrollIntoView({behavior: 'smooth', block: 'center'}); }
+            if (this.shown) Object.assign(h.style, {left: r.left - pad + 'px', top: Math.max(4, r.top - pad) + 'px',
+              width: r.width + 2 * pad + 'px', height: Math.min(innerHeight - 8 - Math.max(4, r.top - pad), r.height + 2 * pad) + 'px'});
+          }
+          requestAnimationFrame(step); };
+        requestAnimationFrame(step); }
       return true; },
-    unhighlight() { document.getElementById('tt-hl').style.opacity = 0; },
+    unhighlight() { this.current = null; this.shown = false; document.getElementById('tt-hl').style.opacity = 0; },
     press(e) { e.scrollIntoView({behavior: 'smooth', block: 'center'});
       setTimeout(() => { this.point(e); }, 600);
       setTimeout(() => { const c = document.getElementById('tt-cursor'); c.classList.add('down');
@@ -135,7 +201,13 @@ window.tt = (() => {
     card(html) { let c = document.getElementById('tt-card'); if (!c) { c = document.createElement('div'); c.id = 'tt-card'; document.body.appendChild(c); }
       c.innerHTML = html; c.style.opacity = 1; return true; },
     uncard() { const c = document.getElementById('tt-card'); if (c) { c.style.opacity = 0; setTimeout(() => c.remove(), 700); } return true; },
+    chapter(number, title) { const c = document.getElementById('tt-chapter');
+      if (!title) { c.style.opacity = 0; return true; }
+      c.style.opacity = 0; c.style.transform = 'translateY(-8px)';
+      setTimeout(() => { c.innerHTML = `<b>${number}</b>${title}`; c.style.opacity = 1; c.style.transform = 'none'; }, 350);
+      return true; },
     running() { return !!document.querySelector('[data-testid="stStatusWidget"]'); },
+    size() { return document.body.innerText.length; },
   };
 })(); true
 """
@@ -245,45 +317,82 @@ class Browser:
     def __init__(self, frames_dir):
         self.profile = tempfile.mkdtemp()
         self.port = free_port()
+        self.log = open(frames_dir.parent / 'edge.log', 'w', encoding='utf-8', errors='replace')
         self.proc = subprocess.Popen([edge(), '--headless=new', '--disable-gpu', '--hide-scrollbars', '--mute-audio',
+                                      '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
                                       f'--remote-debugging-port={self.port}', f'--user-data-dir={self.profile}',
                                       f'--window-size={WIDTH},{HEIGHT}', 'about:blank'],
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                     stdout=self.log, stderr=self.log)
         wait_for(f'http://127.0.0.1:{self.port}/json/version')
-        page = next(t for t in json.load(urllib.request.urlopen(f'http://127.0.0.1:{self.port}/json')) if t['type'] == 'page')
-        self.ws = connect(page['webSocketDebuggerUrl'], max_size=None)
         self.frames_dir, self.frames, self.recording = frames_dir, [], False
-        self.replies, self.lock, self.next_id = {}, threading.Condition(), 0
-        threading.Thread(target=self._read, daemon=True).start()
+        self.replies, self.lock, self.wlock, self.next_id = {}, threading.Condition(), threading.RLock(), 0
+        self.pending = queue.Queue()  # frames are written to disk by their own worker, so reading never falls behind
+        threading.Thread(target=self._write, daemon=True).start()
+        self._connect()
 
-    def _read(self):
+    def _connect(self):
+        """Attach to the page. Called again if the DevTools link drops: the page keeps its state, so recording resumes."""
+        page = next(t for t in json.load(urllib.request.urlopen(f'http://127.0.0.1:{self.port}/json')) if t['type'] == 'page')
+        # No keepalive pings: during a still title card no frames arrive, and a missed pong must not drop the link.
+        self.ws = connect(page['webSocketDebuggerUrl'], max_size=None, ping_interval=None, close_timeout=2)
+        threading.Thread(target=self._read, args=(self.ws,), daemon=True).start()
+
+    def _reconnect(self):
+        print(f'  ! DevTools link dropped (Edge {"still running" if self.proc.poll() is None else "exited"}); reconnecting')
+        if self.proc.poll() is not None:
+            sys.exit('Edge stopped; see edge.log in the work folder.')
+        time.sleep(1)
+        self._connect()
+        if self.recording:
+            self.send('Page.startScreencast', format='jpeg', quality=88, maxWidth=WIDTH, maxHeight=HEIGHT, everyNthFrame=2)
+
+    def _write(self):
+        while True:
+            path, data = self.pending.get()
+            path.write_bytes(base64.b64decode(data))
+            self.pending.task_done()
+
+    def _read(self, ws):
         try:
-            for raw in self.ws:
+            for raw in ws:
                 msg = json.loads(raw)
                 if msg.get('method') == 'Page.screencastFrame':
                     p = msg['params']
                     self.send('Page.screencastFrameAck', wait=False, sessionId=p['sessionId'])
                     if self.recording:
                         path = self.frames_dir / f'f{len(self.frames):06d}.jpg'
-                        path.write_bytes(base64.b64decode(p['data']))
                         self.frames.append((p['metadata'].get('timestamp') or time.time(), path))
+                        self.pending.put((path, p['data']))
                 elif 'id' in msg:
                     with self.lock:
                         self.replies[msg['id']] = msg
                         self.lock.notify_all()
         except Exception:
-            pass  # the socket closes when Edge quits
+            pass  # a dropped link is handled by send(), which reconnects
 
-    def send(self, method, wait=True, **params):
+    def send(self, method, wait=True, retry=True, **params):
         with self.lock:
             self.next_id += 1
             ident = self.next_id
-        self.ws.send(json.dumps({'id': ident, 'method': method, 'params': params}))
+        try:
+            with self.wlock:  # frame acknowledgements and commands come from two threads
+                self.ws.send(json.dumps({'id': ident, 'method': method, 'params': params}))
+        except Exception:
+            if not retry or not wait:
+                return None  # a lost frame acknowledgement does not matter
+            with self.wlock:
+                self._reconnect()
+            return self.send(method, wait, False, **params)
         if not wait:
             return None
         with self.lock:
-            self.lock.wait_for(lambda: ident in self.replies, timeout=60)
-            return self.replies.pop(ident, {}).get('result', {})
+            got = self.lock.wait_for(lambda: ident in self.replies, timeout=20)
+            reply = self.replies.pop(ident, {})
+        if not got and retry:  # the link dropped after the command went out
+            with self.wlock:
+                self._reconnect()
+            return self.send(method, wait, False, **params)
+        return reply.get('result', {})
 
     def js(self, expression):
         result = self.send('Runtime.evaluate', expression=expression, returnByValue=True, awaitPromise=True)
@@ -293,27 +402,32 @@ class Browser:
         return self.js(f'window.tt.{name}({", ".join(json.dumps(a) for a in args)})')
 
     def settle(self, timeout=40):
-        """Wait until Streamlit has finished rerunning after a click."""
-        time.sleep(1.2)
-        end = time.time() + timeout
-        while time.time() < end and self.js('window.tt.running()'):
-            time.sleep(0.3)
-        time.sleep(0.6)
+        """Wait until Streamlit has finished rerunning after a click: no run indicator, and the page has stopped
+        changing for a second (results such as the interviewer's questions arrive after the indicator goes)."""
+        time.sleep(0.8)
+        end, last, steady = time.time() + timeout, None, 0
+        while time.time() < end and steady < 3:
+            size = self.js('window.tt.size()')
+            steady = steady + 1 if size == last and not self.js('window.tt.running()') else 0
+            last = size
+            time.sleep(0.35)
 
     def start(self):
         self.recording = True
-        self.send('Page.startScreencast', format='jpeg', quality=90, maxWidth=WIDTH, maxHeight=HEIGHT, everyNthFrame=1)
+        self.send('Page.startScreencast', format='jpeg', quality=88, maxWidth=WIDTH, maxHeight=HEIGHT, everyNthFrame=2)  # 30 fps
 
     def stop(self):
         self.send('Page.stopScreencast')
         time.sleep(0.5)
         self.recording = False
+        self.pending.join()
 
     def close(self):
         try:
             self.ws.close()
         finally:
             self.proc.terminate()
+            self.log.close()
             shutil.rmtree(self.profile, ignore_errors=True)
 
 
@@ -348,11 +462,11 @@ def run_action(browser, action, length):
             print(f'  ! {kind} not found:', args)
         time.sleep(1.6)
         browser.settle()
-    elif kind == 'slides':
-        each = max(2.0, (length - 0.6) / len(args[0]))
-        for name in args[0]:
-            browser.call('card', slides_html(name))
-            time.sleep(each)
+    elif kind == 'chapter':
+        browser.call('chapter', *args)
+    elif kind == 'slide':
+        browser.call('card', slides_html(args[0]))
+        time.sleep(0.6)
 
 
 def main():
@@ -401,12 +515,14 @@ def main():
         time.sleep(0.5)
         starts = []
         for i, ((text, actions), (_, length, _)) in enumerate(zip(SCENES, voices)):
-            print(f'   scene {i + 1}/{len(SCENES)}: {text[:60]}...')
             begin = time.time()
             starts.append(begin)
             for action in actions:
                 run_action(browser, action, length)
-            hold = 3.0 if i == len(SCENES) - 1 else 0.7
+            busy = time.time() - begin
+            print(f'   beat {i + 1:2d}/{len(SCENES)}  voice {length:4.1f} s  screen {busy:4.1f} s'
+                  + ('  (screen longer than voice)' if busy > length + 0.5 else '') + f'  {text[:48]}')
+            hold = 3.0 if i == len(SCENES) - 1 else HOLDS[i]
             time.sleep(max(0.0, begin + length + hold - time.time()))
         browser.stop()
     finally:
@@ -426,7 +542,7 @@ def main():
         listing.write(f"file '{frames[-1][1].as_posix()}'\n")
     cues = []
     for start, (text, _), (_, _, words) in zip(starts, SCENES, voices):
-        cues += captions(text, words, start - t0)
+        cues += captions(text, words, max(0.0, start - t0))
     srt = '\n'.join(f'{n}\n{srt_time(a)} --> {srt_time(b)}\n{text}\n' for n, (a, b, text) in enumerate(cues, 1))
     (work / 'captions.srt').write_text(srt, encoding='utf-8')
     shutil.copy(work / 'captions.srt', out.with_suffix('.srt'))
@@ -435,7 +551,7 @@ def main():
     inputs, delays = [], []
     for i, (start, (path, _, _)) in enumerate(zip(starts, voices)):
         inputs += ['-i', str(path)]
-        delay = int((start - t0) * 1000)
+        delay = max(0, int((start - t0) * 1000))  # the first frame can arrive a moment after the first beat starts
         delays.append(f'[{i + 1}:a]adelay={delay}|{delay}[a{i}]')
     mix = ';'.join(delays) + ';' + ''.join(f'[a{i}]' for i in range(len(voices))) + \
         f'amix=inputs={len(voices)}:normalize=0,apad[aout]'
