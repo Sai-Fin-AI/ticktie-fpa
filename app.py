@@ -1,6 +1,8 @@
 """Run with: python -m streamlit run app.py"""
 from decimal import Decimal
 import hashlib
+from pathlib import Path
+
 import streamlit as st
 import fmt
 from finance import (CC, NEGATIVE_NOTE, PRODUCT_LEVELS, SALES, UnmappedGL, UnmappedSKU, accounts_in, aggregate, apply_gl_map,
@@ -23,6 +25,7 @@ import pandas as pd
 from style import apply_style, colour_table, hero, money_columns, section
 
 st.set_page_config(page_title='TickTie · FP&A variance review', page_icon='📊', layout='wide')
+DEMO_VIDEO = Path(__file__).resolve().parent / 'docs' / 'video' / 'ticktie_demo.mp4'
 apply_style()
 hero_box = st.container()  # filled once the data is known
 
@@ -210,6 +213,11 @@ else:
 if hosted():
     st.caption('🌐 Online demo: upload synthetic or public data only, never company data. Files are read in memory for '
                'your session and are not stored. Run the app on your own computer for private data.')
+if DEMO_VIDEO.exists():
+    with st.expander('▶ Watch the 2-minute demo', expanded=False):
+        st.video(str(DEMO_VIDEO))
+        st.caption('A guided tour of this demo: the month at a glance, what the totals hide, owners explaining, the '
+                   'locked pack, code checking the AI, and the CFO deck. Recorded automatically by scripts/make_demo_video.py.')
 if gl_info:
     unused = len(gl_info['unused'])
     st.caption(f"🔗 GL mapping: {gl_info['gl_codes']} GL codes roll up into {gl_info['accounts']} accounts."

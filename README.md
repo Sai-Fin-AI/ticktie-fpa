@@ -13,6 +13,10 @@
 
 **[▶ Open the live demo](https://ticktie-fpa.streamlit.app)**. No sign-up and no API key: it runs on synthetic data, with AI answers recorded from a local model and labelled as such. Click **Load demo explanations**, then **Lock review pack**, then **Draft CFO commentary and deck**. The [walkthrough](docs/WALKTHROUGH.md) gives the figures to expect at each step.
 
+**🎥 Watch the 2-minute demo** (click the picture to play): AI voice and captions, recorded automatically by [`scripts/make_demo_video.py`](scripts/make_demo_video.py).
+
+[![TickTie demo video: click to play](docs/images/video_thumbnail.jpg)](docs/video/ticktie_demo.mp4)
+
 ![The review screen: P&L tiles, statement and EBITDA waterfall](docs/images/app_overview.png)
 
 | CFO deck: executive summary | CFO deck: EBITDA bridge |
