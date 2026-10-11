@@ -15,7 +15,7 @@
 
 **🎥 Watch the 2-minute demo** (click the picture to play): AI voice and captions, recorded automatically by [`scripts/make_demo_video.py`](scripts/make_demo_video.py).
 
-[![TickTie demo video: click to play](docs/images/video_thumbnail.jpg)](docs/video/ticktie_demo.mp4)
+[![TickTie demo video: click to play](docs/images/video_thumbnail.jpg)](https://sai-fin-ai.github.io/ticktie-fpa/)
 
 ![The review screen: P&L tiles, statement and EBITDA waterfall](docs/images/app_overview.png)
 
