@@ -120,7 +120,7 @@ flowchart LR
 | `gl_panel.py` | GL mapping workbook (master export with new codes flagged) and the GL code tables |
 | `fmt.py` | Number style (international or Indian lakh/crore) for screen, commentary and deck |
 | `charts.py` | On-screen waterfall (Altair) |
-| `tests/` | 166 tests: engine, data loading and column mapping, cost centres and roll-ups, evidence, review pack, agents, checker, provider connection, UI, and edge cases found by a synthetic stress run. No AI or network needed. |
+| `tests/` | 169 tests: engine, data loading and column mapping, cost centres and roll-ups, evidence, review pack, agents, checker, provider connection, UI, and edge cases found by a synthetic stress run. No AI or network needed. |
 
 ## Run it locally
 

@@ -222,7 +222,7 @@ CARDS = {
         <div style="font-size:120px;font-weight:800">TickTie</div>
         <div style="font-size:44px;font-weight:600;margin:6px 0 46px">Variance commentary a CFO can sign off</div>
         <div style="font-size:40px;line-height:1.7">▶ ticktie-fpa.streamlit.app<br>github.com/Sai-Fin-AI/ticktie-fpa</div>
-        <div style="font-size:26px;margin-top:46px;color:#d6e4ff">Synthetic data · Python · Streamlit · local LLM · 166 automated tests</div></div>""",
+        <div style="font-size:26px;margin-top:46px;color:#d6e4ff">Synthetic data · Python · Streamlit · local LLM · 169 automated tests</div></div>""",
 }
 
 

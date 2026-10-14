@@ -47,7 +47,7 @@ ERP exports don't arrive tidy, so the input layer is rule-based:
 
 ## How it was tested
 
-- **166 automated tests** covering the engine, data loading, roll-ups, the review pack, the checker, both agents and the Streamlit interface. They run on every push (GitHub Actions, Windows and Ubuntu).
+- **169 automated tests** covering the engine, data loading, roll-ups, the review pack, the checker, both agents and the Streamlit interface. They run on every push (GitHub Actions, Windows and Ubuntu).
 - **Synthetic stress testing.** Hundreds of randomly generated datasets (different countries, centres, SKU or brand-only sales, zero and negative amounts, paise, very large values, awkward names) were pushed through the whole pipeline. Every run checked that totals reconcile at every level, that every bridge walks from start to end and that every pack locks and reopens. This found nine defects, all fixed and now covered by tests. Examples: a P&L without operating expenses crashed the EBITDA tile; Excel's "510100.0" silently split a line in two; long names pushed slide tables off the page.
 - **Reading the AI output as a CFO would.** That review found summary bullets that used real figures in the wrong list ("favorable variances include Consulting, INR 75,000 above budget"). It led to the list-claim rule in the checker.
 
