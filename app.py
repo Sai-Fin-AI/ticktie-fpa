@@ -82,7 +82,7 @@ try:
     gl_map = load_gl_map(table_csv(gl_raw, gl_upload.name)) if gl_raw else None
     product_raw = product_upload.getvalue() if product_upload is not None else b''
     product_master = load_product_master(table_csv(product_raw, product_upload.name)) if product_raw else None
-    inputs = load_inputs(mode, uploads, gl_map)
+    inputs = load_inputs(mode, uploads, gl_map, list(product_master or ()))
     if inputs['demo']:  # the demo posts to GL codes and SKUs, and comes with its own mapping and product master
         if gl_raw or product_raw:
             st.info('Your GL mapping and product master are used once you upload your own data. The demo uses its samples.')

@@ -979,11 +979,19 @@ def _full_year_strip(slide, outlook):
           f'within the year. Unexplained variance is not projected. {sign_note}. INR.', size=9, color=MUTED)
 
 
+APPENDIX_LINES = 60  # five slides; a large ledger can have thousands of lines, and the Excel pack lists them all
+
+
 def _appendix_slides(deck, pack, footer):
-    lines = material_lines(pack)
+    every = material_lines(pack)
+    lines = every[:APPENDIX_LINES]
     for start in range(0, max(len(lines), 1), 12):
         chunk = lines[start:start + 12]
-        slide = _slide(deck, 'Appendix', f'Lines needing explanation ({start + 1}–{start + len(chunk)} of {len(lines)})', footer)
+        slide = _slide(deck, 'Appendix', f'Lines needing explanation ({start + 1}–{start + len(chunk)} of {len(every)})', footer)
+        if len(every) > len(lines) and start + 12 >= len(lines):
+            _text(slide, 0.6, 1.75 + 0.38 * (len(chunk) + 1) + 0.12, 12.13, 0.3,
+                  f'The {len(lines)} largest lines are shown; all {len(every)} are in the Excel pack (Variances and Open items sheets).',
+                  size=10, color=MUTED)
         rows = [[l['label'] + (' · ⚠ negative balance' if l.get('negative') else ''), fmt.balance(_d(l['actual'])), fmt.balance(_d(l['baseline'])), _signed(l['variance']), _pct(l), '● ' + _status(l),
                  _plain(l['unexplained'])] for _, l in chunk]
         _table(slide, 0.6, 1.75, 12.13, ['LINE', 'ACTUAL INR', pack['basis'].upper() + ' INR', 'VARIANCE INR', '%', 'STATUS',

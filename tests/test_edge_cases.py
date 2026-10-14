@@ -92,6 +92,45 @@ class InputShapeTests(unittest.TestCase):
                           ('510100.0', 'a trailing .0 (Excel number format)')])
 
 
+class SecondRoundTests(unittest.TestCase):
+    """Found in the second critical round: formula injection, a deck that grew with the ledger, SKU spellings."""
+
+    def test_text_never_becomes_a_formula_in_exports(self):
+        from openpyxl import load_workbook
+        from agents.interviewer import interview, query_list_csv
+        from gl_panel import mapping_workbook, product_workbook
+        from pack import pack_excel
+        evil = '"=HYPERLINK(""http://evil.example"",""Click"")"'
+        pack = pack_of('month,country,cost_center,account,currency,actual,budget,forecast\n'
+                       f'2026-08,India,=cmd,{evil},INR,200000,100000,100000\n', 'Operating expenses')
+        for data in (pack_excel(pack), mapping_workbook({}, ['=1+2'], ['=1+2']), product_workbook({}, ['@x'], ['@x'])):
+            book = load_workbook(io.BytesIO(data))
+            self.assertEqual([c.coordinate for ws in book for row in ws.iter_rows() for c in row if c.data_type == 'f'], [])
+        self.assertIn('=HYPERLINK', load_workbook(io.BytesIO(pack_excel(pack)))['Variances']['C2'].value)  # kept as text
+        findings, _ = interview(pack, None)
+        rows = query_list_csv(findings).splitlines()[1:]
+        self.assertTrue(rows and all(not cell.startswith(('=', '+', '-', '@')) for row in rows for cell in row.split(',')))
+
+    def test_deck_appendix_stops_at_sixty_lines(self):
+        text = 'month,country,cost_center,account,currency,actual,budget,forecast\n' + ''.join(
+            f'2026-08,India,C{i},Travel,INR,{200000 + i},100000,100000\n' for i in range(90))
+        slides = Presentation(io.BytesIO(make_deck(pack_of(text, 'Operating expenses'), None)['pptx'])).slides
+        titles = [' '.join(s.text_frame.text for s in slide.shapes if s.has_text_frame) for slide in slides]
+        appendix = [t for t in titles if 'Lines needing explanation' in t]
+        self.assertEqual(len(appendix), 5)  # 60 of 90 lines; the Excel pack lists all of them
+        self.assertIn('all 90 are in the Excel pack', appendix[-1])
+
+    def test_sku_columns_and_the_product_master_are_spell_checked(self):
+        headers = ['Month', 'Country', 'Profit Center', 'SKU', 'Account', 'Actual', 'Budget', 'Forecast']
+        roles = guess_roles(headers, 'pl')
+        self.assertEqual(roles[3], 'extra')  # the app maps SKU as an extra level, not a 'sku' role
+        specs = {'pl': (headers, [['2026-08', 'India', 'PC-IN', '00123', 'Sales', 1, 1, 1]], roles, 's.csv')}
+        _, _, suggestions = validate.check(specs, skus=['123'])
+        self.assertEqual([(s['field'], s['to'], s['to_files']) for s in suggestions], [('sku', '123', ['Product master'])])
+        fixed = validate.apply(specs, suggestions, [suggestions[0]['id']])
+        self.assertEqual(fixed['pl'][1][0][3], '123')
+
+
 class ClaimTests(unittest.TestCase):
     """Real figures placed in the wrong list: found in the recorded demo commentary, now rejected."""
 

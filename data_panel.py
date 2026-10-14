@@ -65,7 +65,7 @@ def _map_columns(kind, upload):
     return headers, rows, roles, upload.name
 
 
-def load_inputs(mode, uploads, gl_map=None):
+def load_inputs(mode, uploads, gl_map=None, skus=()):
     """Main area: mapping and conversion. Returns a dict describing the standard-layout data.
 
     'pl_text' is the optional sales and P&L file in the standard layout (None without one).
@@ -94,7 +94,7 @@ def load_inputs(mode, uploads, gl_map=None):
     for kind, spec in specs.items():
         digest.update(kind.encode() + spec[3].encode() + uploads[kind].getvalue() + repr(spec[2]).encode())
     digest.update(country.encode())
-    specs, data_log, accepted = data_checks(specs, list(gl_map or ()), digest.hexdigest()[:10])
+    specs, data_log, accepted = data_checks(specs, list(gl_map or ()), digest.hexdigest()[:10], list(skus))
     digest.update(repr(sorted(accepted)).encode())  # accepting a match changes the data
     source = 'upload:' + ','.join(f'{k}={s[3]}' for k, s in specs.items())
     credits = gl_map is not None
@@ -110,12 +110,12 @@ def load_inputs(mode, uploads, gl_map=None):
             'has_forecast': report['forecast'], 'fingerprint': digest.hexdigest(), 'data_log': data_log}
 
 
-def data_checks(specs, gl_codes, file_id):
+def data_checks(specs, gl_codes, file_id, skus=()):
     """Run the rule-based checks, show what was cleaned, and let the reviewer accept suggested matches.
 
     Returns (cleaned specs, audit log, accepted suggestion ids). Nothing is merged without a tick.
     """
-    cleaned, auto, suggestions = validate.check(specs, gl_codes)
+    cleaned, auto, suggestions = validate.check(specs, gl_codes, skus)
     accepted = []
     if auto or suggestions:
         title = f'Data checks · {len(auto)} automatic fix(es)' + (f' · {len(suggestions)} possible match(es) to review'

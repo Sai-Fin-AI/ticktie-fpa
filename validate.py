@@ -11,13 +11,14 @@ Three kinds of rule, every one of them logged:
 import re
 from collections import Counter
 
-from finance import CC
+from finance import CC, extra_name
 
 FIELDS = (('account', 'Account / GL code'), (CC, 'Cost / profit centre'), ('country', 'Country / entity'),
           ('sku', 'SKU'), ('brand', 'Brand'))
-FILE_NAMES = {'gl_mapping': 'GL mapping', 'actuals': 'Actuals', 'combined': 'Data file', 'budget': 'Budget',
+FILE_NAMES = {'gl_mapping': 'GL mapping', 'product_master': 'Product master', 'actuals': 'Actuals', 'combined': 'Data file', 'budget': 'Budget',
               'forecast': 'Forecast', 'pl': 'Sales and P&L lines'}
-PRIORITY = tuple(FILE_NAMES)  # whose spelling wins: the GL mapping is the master, then the actuals
+PRIORITY = tuple(FILE_NAMES)  # whose spelling wins: the masters (GL mapping, product master), then the actuals
+MASTERS = {'account': 'gl_mapping', 'sku': 'product_master'}
 SEPARATORS = re.compile(r'[\s\-_./]')
 SCIENTIFIC = re.compile(r'[+-]?\d+(?:[.,]\d+)?[eE][+-]?\d+')
 
@@ -60,21 +61,31 @@ def _corrupted(value):
     return None
 
 
-def check(specs, gl_codes=()):
-    """specs: {kind: (headers, rows, roles, name)} as mapped on screen. gl_codes: the GL mapping's codes.
+def _column(headers, roles, field):
+    """Where a field sits in a file: its own role (account, cost_center, country), or an extra column named for it
+    (a SKU or Brand column is mapped as an extra level). None when the file has no such column."""
+    if field in roles:
+        return roles.index(field)
+    return next((i for i, (h, r) in enumerate(zip(headers, roles)) if r == 'extra' and extra_name(h) == field), None)
+
+
+def check(specs, gl_codes=(), skus=()):
+    """specs: {kind: (headers, rows, roles, name)} as mapped on screen. gl_codes: the GL mapping's codes; skus: the
+    product master's SKUs (each master's spelling wins, so 00123 in the data and 123 in an Excel master are offered as one).
 
     Returns (cleaned specs, automatic fixes, suggestions). Raises ValueError for corrupted codes.
     """
     cleaned, auto, problems = {}, [], []
     spellings = {field: {} for field, _ in FIELDS}  # field -> spelling -> Counter(kind)
-    for code in gl_codes:
-        spellings['account'].setdefault(code, Counter())['gl_mapping'] += 1
+    for field, codes in (('account', gl_codes), ('sku', skus)):
+        for code in codes:
+            spellings[field].setdefault(str(code), Counter())[MASTERS[field]] += 1
     for kind, (headers, rows, roles, name) in specs.items():
         rows = [list(r) for r in rows]
         for field, label in FIELDS:
-            if field not in roles:
+            i, fixed = _column(headers, roles, field), []
+            if i is None:
                 continue
-            i, fixed = roles.index(field), []
             for line, row in enumerate(rows, 2):
                 if i >= len(row):
                     continue
@@ -102,15 +113,15 @@ def check(specs, gl_codes=()):
 
 
 def _suggestions(spellings, specs):
-    names = {kind: spec[3] for kind, spec in specs.items()} | {'gl_mapping': 'GL mapping'}
+    names = {kind: spec[3] for kind, spec in specs.items()} | {k: FILE_NAMES[k] for k in MASTERS.values()}
     out = []
     for field, label in FIELDS:
         groups = {}
         for spelling, kinds in spellings[field].items():
             groups.setdefault(match_key(spelling), []).append((spelling, kinds))
         for key, members in groups.items():
-            if len(members) < 2 or sum('gl_mapping' in k for _, k in members) > 1:
-                continue  # one spelling, or the mapping itself lists both: not ours to merge
+            if len(members) < 2 or sum(MASTERS.get(field, '') in k for _, k in members) > 1:
+                continue  # one spelling, or the master itself lists both: not ours to merge
 
             def rank(member):
                 spelling, kinds = member
@@ -140,8 +151,8 @@ def apply(specs, suggestions, accepted):
     for kind, (headers, rows, roles, name) in specs.items():
         rows = [list(r) for r in rows]
         for field, mapping in renames.items():
-            if field in roles:
-                i = roles.index(field)
+            i = _column(headers, roles, field)
+            if i is not None:
                 for row in rows:
                     if i < len(row):
                         text = str(int(row[i])) if isinstance(row[i], float) and row[i].is_integer() else str(row[i]).strip()

@@ -101,9 +101,11 @@ def query_list_csv(findings):
     import io
     output = io.StringIO(newline='')
     writer = csv.writer(output)
+    # Opened in Excel, a cell starting with = + - or @ would run as a formula; a leading ' keeps it as text.
+    safe = lambda text: "'" + text if str(text).startswith(('=', '+', '-', '@', '\t', '\r')) else text
     writer.writerow(('owner', 'line', 'movement', 'open_amount', 'question'))
     for name, items in by_owner(findings).items():
         for f in items:
             for q in f['questions']:
-                writer.writerow((name, f['label'], f['movement'], f['open'], q))
+                writer.writerow(tuple(safe(v) for v in (name, f['label'], f['movement'], f['open'], q)))
     return output.getvalue()

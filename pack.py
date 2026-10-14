@@ -20,6 +20,20 @@ SCHEMA_VERSION = '1'
 NOTE_FIELDS = ('id', 'reason', 'reference', 'amount', 'status', 'timing', 'action')
 
 
+def workbook_bytes(book):
+    """Save a workbook for download. Text that starts with = + - or @ (an account named =HYPERLINK(...), a note
+    typed as =1+1) is stored as plain text, never as a live formula, so an exported file cannot run or link
+    anything when it is opened. The tool itself writes no cell formulas."""
+    for sheet in book.worksheets:
+        for row in sheet.iter_rows():
+            for cell in row:
+                if cell.data_type == 'f':
+                    cell.data_type = 's'
+    output = io.BytesIO()
+    book.save(output)
+    return output.getvalue()
+
+
 def _plain(value):
     """Decimals become strings so JSON keeps exact amounts."""
     if isinstance(value, Decimal):
@@ -348,9 +362,7 @@ def pack_excel(pack):
     if pack.get('data_checks'):
         sheet('Data checks', ['Check', 'File', 'Detail', 'Action'],
               [(c['check'], c['file'], c['detail'], c['action']) for c in pack['data_checks']])
-    output = io.BytesIO()
-    book.save(output)
-    return output.getvalue()
+    return workbook_bytes(book)
 
 
 def open_reason(line):

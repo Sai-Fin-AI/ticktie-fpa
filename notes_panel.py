@@ -16,7 +16,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 from evidence import STATUSES, TIMINGS, make_note
 from finance import line_label
-from pack import export_notes
+from pack import export_notes, workbook_bytes
 
 EDITABLE = ('Explanation', 'Reference', 'Amount explained (INR)', 'Review status', 'Timing', 'Proposed action')
 
@@ -130,9 +130,7 @@ def explanation_template(options, notes, period, baseline):
                  'Upload the saved file in the app under Business explanations → Excel round-trip.'):
         guide.append([line])
     guide.column_dimensions['A'].width = 110
-    output = io.BytesIO()
-    book.save(output)
-    return output.getvalue()
+    return workbook_bytes(book)
 
 
 def read_template(data):

@@ -8,6 +8,7 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from finance import GL, PL_LINES, breakdown, dim_label, gl_detail, gl_lines
+from pack import workbook_bytes
 from style import colour_table, money_columns
 
 XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -63,9 +64,7 @@ def mapping_workbook(gl_map, present, new=()):
                  'The status column is for information and is ignored on upload. Save and upload this file in the sidebar.'):
         notes.append((text,))
     notes.column_dimensions['A'].width = 120
-    output = io.BytesIO()
-    book.save(output)
-    return output.getvalue()
+    return workbook_bytes(book)
 
 
 def product_workbook(master, present, new=()):
@@ -98,9 +97,7 @@ def product_workbook(master, present, new=()):
                  'Yellow rows are SKUs in the data that the master does not know yet: fill in their brand and category.'):
         notes.append((text,))
     notes.column_dimensions['A'].width = 110
-    output = io.BytesIO()
-    book.save(output)
-    return output.getvalue()
+    return workbook_bytes(book)
 
 
 def margins_table(items, name, baseline):
